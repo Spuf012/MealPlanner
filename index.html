@@ -75,6 +75,8 @@
   .row:not(.done):not(.spice) .check, .row.spice.on .check { border-color: var(--accent); background: var(--accent); }
   .row:not(.done):not(.spice) .check::after, .row.spice.on .check::after { content: "✓"; color: #fff; font-size: 14px; font-weight: 700; }
   .catchips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .catlabel { font-size: 12px; color: var(--muted); margin: 10px 4px 5px; }
+  .catgroup:first-child .catlabel { margin-top: 0; }
   .cbx { display: flex; align-items: center; gap: 10px; margin: 16px 4px 4px; font-weight: 500; }
   .cbx input { width: 22px; height: 22px; accent-color: var(--accent); }
   .empty-state { text-align: center; color: var(--muted); padding: 40px 20px; }
@@ -142,7 +144,13 @@ const CONFIG = {
 
 const SLOTS = [['mittag', 'Mittag'], ['abend', 'Abend']];
 const UNITS = ['', 'g', 'kg', 'ml', 'l', 'Stk', 'EL', 'TL', 'Prise', 'Pck', 'Dose', 'Bund', 'Zehe', 'Scheibe'];
-const DEFAULT_CATS = ['Fleisch', 'Geflügel', 'Fisch', 'Vegetarisch', 'Pasta', 'Suppe', 'Salat', 'Auflauf'];
+const CAT_GROUPS = [
+  ['Hauptzutat', ['Fleisch', 'Geflügel', 'Fisch', 'Vegetarisch', 'Vegan']],
+  ['Art', ['Pasta', 'Pizza', 'OnePot', 'Suppe', 'Eintopf', 'Auflauf', 'Ofengericht', 'Salat', 'Reis', 'Kartoffeln', 'Grillen', 'Soße', 'Beilagen', 'Snack', 'Brot/Abendbrot', 'Frühstück', 'Süßes/Dessert']],
+  ['Küche', ['Deutsch', 'Italienisch', 'Chinesisch', 'Asiatisch', 'Mexikanisch', 'Indisch', 'Griechisch', 'Türkisch']],
+  ['Praktisch', ['Schnell', 'Meal-Prep', 'Kinder-Liebling', 'Gäste']],
+];
+const DEFAULT_CATS = CAT_GROUPS.flatMap(g => g[1]);
 const DAYNAMES = ['Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag', 'Sonntag'];
 
 const $ = (s, el = document) => el.querySelector(s);
@@ -448,13 +456,14 @@ function catChip(c, on) { return `<button type="button" class="chip${on ? ' on' 
 function dishFormHtml(d) {
   const isNew = !d;
   d = d || normDish({ id: uid(), name: '' });
-  const cats = [...new Set([...DEFAULT_CATS, ...categories(), ...d.categories])];
+  const custom = [...new Set([...categories(), ...d.categories])].filter(c => !DEFAULT_CATS.includes(c));
+  const groups = [...CAT_GROUPS, ['Eigene', custom]];
   const ings = d.ingredients.length ? d.ingredients : [{}, {}, {}];
   const spices = d.spices.length ? d.spices : [{}];
   return `<form class="sheet" id="dishform" data-id="${d.id}" data-new="${isNew ? 1 : 0}"><div class="sheet-head"><button type="button" data-act="close">Abbrechen</button><b>${isNew ? 'Neues Gericht' : 'Gericht bearbeiten'}</b><button type="submit">Sichern</button></div>
     <div class="sheet-body">
       <label class="f">Name</label><input class="in" name="dname" required value="${esc(d.name)}" placeholder="z. B. Spaghetti Bolognese">
-      <label class="f">Kategorien (mehrere möglich)</label><div class="catchips" id="catchips">${cats.map(c => catChip(c, d.categories.includes(c))).join('')}</div>
+      <label class="f">Kategorien (mehrere möglich)</label><div id="catchips">${groups.map(([g, cs]) => `<div class="catgroup" data-group="${esc(g)}"${cs.length ? '' : ' hidden'}><div class="catlabel">${esc(g)}</div><div class="catchips">${cs.map(c => catChip(c, d.categories.includes(c))).join('')}</div></div>`).join('')}</div>
       <div class="addrow" style="margin-top:8px"><input class="in" id="newcat" placeholder="Neue Kategorie"><button type="button" class="btn" data-act="addcat">+</button></div>
       <label class="f">Zutaten</label><div id="ings-zutat">${ings.map(i => ingRow(i, 'zutat')).join('')}</div>
       <button type="button" class="btn full" data-act="addingr" data-kind="zutat">+ Zutat</button>
@@ -474,7 +483,8 @@ function dishFormHtml(d) {
 function addCat() {
   const inp = $('#newcat'); const v = inp.value.trim(); if (!v) return;
   const existing = [...document.querySelectorAll('#catchips .chip')].find(c => c.dataset.cat.toLowerCase() === v.toLowerCase());
-  if (existing) existing.classList.add('on'); else $('#catchips').insertAdjacentHTML('beforeend', catChip(v, true));
+  if (existing) existing.classList.add('on');
+  else { const g = $('#catchips [data-group="Eigene"]'); g.hidden = false; g.querySelector('.catchips').insertAdjacentHTML('beforeend', catChip(v, true)); }
   inp.value = '';
 }
 
