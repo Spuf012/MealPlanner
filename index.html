@@ -72,8 +72,11 @@
   .row .sub { font-size: 13px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .row.done .main { opacity: .45; text-decoration: line-through; }
   .check { width: 24px; height: 24px; border-radius: 50%; border: 2px solid var(--muted); flex: none; display: grid; place-items: center; }
-  .row:not(.done) .check { border-color: var(--accent); background: var(--accent); }
-  .row:not(.done) .check::after { content: "✓"; color: #fff; font-size: 14px; font-weight: 700; }
+  .row:not(.done):not(.spice) .check, .row.spice.on .check { border-color: var(--accent); background: var(--accent); }
+  .row:not(.done):not(.spice) .check::after, .row.spice.on .check::after { content: "✓"; color: #fff; font-size: 14px; font-weight: 700; }
+  .catchips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .cbx { display: flex; align-items: center; gap: 10px; margin: 16px 4px 4px; font-weight: 500; }
+  .cbx input { width: 22px; height: 22px; accent-color: var(--accent); }
   .empty-state { text-align: center; color: var(--muted); padding: 40px 20px; }
   .hint { font-size: 13px; color: var(--muted); margin: 8px 4px 14px; }
   .actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 14px 0; }
@@ -169,6 +172,8 @@ const LocalStore = {
   async plan(from, to) { const p = ls.get('ep.plan', {}); return Object.values(p).filter(e => e.day >= from && e.day <= to); },
   async setSlot(day, slot, dish_id, note) { const p = ls.get('ep.plan', {}); const k = day + '|' + slot;
     if (!dish_id && !note) delete p[k]; else p[k] = { day, slot, dish_id: dish_id || null, note: note || '' }; ls.set('ep.plan', p); },
+  async catalog() { return Object.values(ls.get('ep.catalog', {})); },
+  async saveCatalog(entries) { const c = ls.get('ep.catalog', {}); for (const e of entries) c[e.kind + '|' + e.name_key] = e; ls.set('ep.catalog', c); },
 };
 
 const SupaStore = {
@@ -193,6 +198,8 @@ const SupaStore = {
       : this.sb.from('plan').upsert({ day, slot, dish_id: dish_id || null, note: note || '' });
     const { error } = await q; if (error) throw error;
   },
+  async catalog() { const { data, error } = await this.sb.from('catalog').select('*'); if (error) throw error; return data; },
+  async saveCatalog(entries) { if (!entries.length) return; const { error } = await this.sb.from('catalog').upsert(entries); if (error) throw error; },
 };
 
 const store = (CONFIG.SUPABASE_URL && CONFIG.SUPABASE_ANON_KEY) ? SupaStore : LocalStore;
@@ -211,13 +218,26 @@ const settings = Object.assign({ shortcut: 'Einkaufsliste' }, ls.get('ep.setting
 function toast(msg) { const t = $('#toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toast._t); toast._t = setTimeout(() => t.classList.remove('show'), 2200); }
 async function guard(fn) { try { return await fn(); } catch (e) { console.error(e); toast('Fehler: ' + (e.message || e)); } }
 
-async function loadDishes() { state.dishes = (await store.dishes()).map(d => ({ ...d, ingredients: d.ingredients || [] })); }
+function normDish(d) {
+  return { ...d,
+    categories: (d.categories && d.categories.length) ? d.categories : (d.category ? [d.category] : []),
+    ingredients: d.ingredients || [], spices: d.spices || [],
+    recipe_url: d.recipe_url || '', recipe_book: d.recipe_book || '', recipe_page: d.recipe_page || '', recipe_self: !!d.recipe_self };
+}
+async function loadDishes() {
+  state.dishes = (await store.dishes()).map(normDish);
+  state.catalog = { zutat: new Map(), gewuerz: new Map() };
+  for (const e of await store.catalog()) state.catalog[e.kind]?.set(e.name_key, e);
+  // auch Zutaten aus vorhandenen Gerichten vorschlagen
+  for (const d of state.dishes) for (const [kind, arr] of [['zutat', d.ingredients], ['gewuerz', d.spices]])
+    for (const i of arr) { const k = (i.name || '').trim().toLowerCase(); if (k && !state.catalog[kind].has(k)) state.catalog[kind].set(k, { kind, name_key: k, name: i.name.trim(), unit: i.unit || '' }); }
+}
 async function loadPlan() {
   const from = iso(state.week), to = iso(addDays(state.week, 6));
   state.plan = {}; for (const e of await store.plan(from, to)) state.plan[e.day + '|' + e.slot] = e;
 }
 const dishById = id => state.dishes.find(d => d.id === id);
-const categories = () => [...new Set([...state.dishes.map(d => d.category).filter(Boolean)])].sort((a, b) => a.localeCompare(b, 'de'));
+const categories = () => [...new Set(state.dishes.flatMap(d => d.categories).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'de'));
 
 // ── Rendering ───────────────────────────────────────────────
 function render() {
@@ -249,7 +269,7 @@ function viewWeek() {
     for (const [slot, label] of SLOTS) {
       const e = state.plan[key + '|' + slot]; const dish = e && dishById(e.dish_id);
       let what;
-      if (dish) what = `<span class="what">${esc(dish.name)}${dish.category ? `<div class="cat">${esc(dish.category)}</div>` : ''}</span>`;
+      if (dish) what = `<span class="what">${esc(dish.name)}${dish.categories.length ? `<div class="cat">${esc(dish.categories.join(', '))}</div>` : ''}</span>`;
       else if (e && e.note) what = `<span class="what note">${esc(e.note)}</span>`;
       else what = `<span class="what empty">+ Gericht wählen</span>`;
       html += `<button class="slot" data-act="pick" data-day="${key}" data-slot="${slot}"><span class="when">${label}</span>${what}</button>`;
@@ -263,8 +283,8 @@ function viewDishes() {
   const cats = categories();
   const q = state.search.trim().toLowerCase();
   const list = state.dishes
-    .filter(d => !state.cat || d.category === state.cat)
-    .filter(d => !q || d.name.toLowerCase().includes(q) || d.ingredients.some(i => (i.name || '').toLowerCase().includes(q)))
+    .filter(d => !state.cat || d.categories.includes(state.cat))
+    .filter(d => !q || d.name.toLowerCase().includes(q) || [...d.ingredients, ...d.spices].some(i => (i.name || '').toLowerCase().includes(q)))
     .sort((a, b) => a.name.localeCompare(b.name, 'de'));
   let html = `<div class="wrap"><header class="top"><h1>Gerichte</h1><button class="iconbtn primary" data-act="newdish">+ Neu</button></header>
     <input class="search" id="search" type="search" placeholder="Suchen (Name oder Zutat)" value="${esc(state.search)}">`;
@@ -272,18 +292,18 @@ function viewDishes() {
   if (!state.dishes.length) return html + `<div class="empty-state">Noch keine Gerichte.<br>Tippe auf „+ Neu“.</div></div>`;
   if (!list.length) return html + `<div class="empty-state">Nichts gefunden.</div></div>`;
   html += `<div class="list">` + list.map(d => `<button class="row" data-act="editdish" data-id="${d.id}"><div class="main"><div>${esc(d.name)}</div>
-    <div class="sub">${esc([d.category, d.ingredients.map(i => i.name).filter(Boolean).join(', ')].filter(Boolean).join(' · ')) || '&nbsp;'}</div></div>${d.recipe_url ? '<span title="Rezept">📄</span>' : ''}</button>`).join('') + `</div>`;
+    <div class="sub">${esc([d.categories.join(', '), d.ingredients.map(i => i.name).filter(Boolean).join(', ')].filter(Boolean).join(' · ')) || '&nbsp;'}</div></div>${(d.recipe_self || d.recipe_url || d.recipe_book) ? '<span title="Rezept vorhanden">📖</span>' : ''}</button>`).join('') + `</div>`;
   return html + `<p class="hint">${state.dishes.length} Gerichte</p></div>`;
 }
 
 // Einkaufsliste aus dem Wochenplan zusammenrechnen
 function parseAmount(a) { if (a == null || a === '') return null; const n = Number(String(a).replace(',', '.').trim()); return isFinite(n) ? n : NaN; }
 function fmtNum(n) { return Number.isInteger(n) ? String(n) : n.toLocaleString('de-DE', { maximumFractionDigits: 2 }); }
-function shoppingItems() {
+function shoppingItems(field = 'ingredients') {
   const map = new Map();
   for (const e of Object.values(state.plan)) {
     const dish = dishById(e.dish_id); if (!dish) continue;
-    for (const ing of dish.ingredients) {
+    for (const ing of dish[field]) {
       const name = (ing.name || '').trim(); if (!name) continue;
       const unit = ing.unit || ''; const key = name.toLowerCase() + '|' + unit;
       let it = map.get(key); if (!it) { it = { key, name, unit, sum: 0, hasNum: false, extra: [], dishes: new Set() }; map.set(key, it); }
@@ -292,7 +312,7 @@ function shoppingItems() {
       it.dishes.add(dish.name);
     }
   }
-  const extras = ls.get('ep.extra.' + iso(state.week), []);
+  const extras = field === 'ingredients' ? ls.get('ep.extra.' + iso(state.week), []) : [];
   for (const x of extras) map.set('extra|' + x, { key: 'extra|' + x, name: x, unit: '', sum: 0, hasNum: false, extra: [], dishes: new Set(), isExtra: true });
   return [...map.values()].sort((a, b) => a.name.localeCompare(b.name, 'de'));
 }
@@ -309,17 +329,25 @@ function itemText(it) {
 
 function viewShopping() {
   const items = shoppingItems();
+  const spices = shoppingItems('spices');
   const have = new Set(ls.get('ep.have.' + iso(state.week), []));
+  const spiceSel = new Set(ls.get('ep.spice.' + iso(state.week), []));
   let html = `<div class="wrap"><header class="top"><h1>Einkauf</h1><button class="iconbtn" data-act="settings" aria-label="Einstellungen">⚙︎</button></header>` + weekNav();
-  if (!items.length) {
+  if (!items.length && !spices.length) {
     html += `<div class="empty-state">Für diese Woche ist noch nichts geplant.</div>`;
-  } else {
+  }
+  if (items.length) {
     html += `<p class="hint">Tippe an, was schon zu Hause ist – das wird durchgestrichen und nicht übertragen.</p><div class="list">` +
       items.map(it => `<button class="row${have.has(it.key) ? ' done' : ''}" data-act="toggle" data-key="${esc(it.key)}"><span class="check"></span>
         <div class="main"><div>${esc(itemText(it))}</div><div class="sub">${it.isExtra ? 'zusätzlich' : esc([...it.dishes].join(', '))}</div></div></button>`).join('') + `</div>`;
   }
+  if (spices.length) {
+    html += `<div class="group-title">Gewürze</div><p class="hint" style="margin-top:0">Tippe an, welche Gewürze mit auf die Liste sollen.</p><div class="list">` +
+      spices.map(it => `<button class="row spice${spiceSel.has(it.key) ? ' on' : ''}" data-act="togglespice" data-key="${esc(it.key)}"><span class="check"></span>
+        <div class="main"><div>${esc(itemText(it))}</div><div class="sub">${esc([...it.dishes].join(', '))}</div></div></button>`).join('') + `</div>`;
+  }
   html += `<div class="addrow"><input class="in" id="extra" placeholder="Weiteres hinzufügen (z. B. Milch)"><button class="btn" data-act="addextra">+</button></div>`;
-  const n = items.filter(i => !have.has(i.key)).length;
+  const n = items.filter(i => !have.has(i.key)).length + spices.filter(i => spiceSel.has(i.key)).length;
   html += `<div class="actions"><button class="btn primary full" data-act="toreminders" ${n ? '' : 'disabled'}>An Erinnerungen senden (${n})</button>
     <button class="btn" data-act="copy" ${n ? '' : 'disabled'}>Kopieren</button><button class="btn" data-act="share" ${n ? '' : 'disabled'}>Teilen …</button></div>`;
   return html + `</div>`;
@@ -327,7 +355,8 @@ function viewShopping() {
 
 function listText() {
   const have = new Set(ls.get('ep.have.' + iso(state.week), []));
-  return shoppingItems().filter(i => !have.has(i.key)).map(itemText).join('\n');
+  const spiceSel = new Set(ls.get('ep.spice.' + iso(state.week), []));
+  return [...shoppingItems().filter(i => !have.has(i.key)), ...shoppingItems('spices').filter(i => spiceSel.has(i.key))].map(itemText).join('\n');
 }
 
 // ── Dialoge ────────────────────────────────────────────────
@@ -340,7 +369,8 @@ function pickerHtml(day, slot) {
   const e = state.plan[day + '|' + slot];
   const d = parseISO(day); const label = SLOTS.find(s => s[0] === slot)[1];
   const groups = {};
-  for (const x of [...state.dishes].sort((a, b) => a.name.localeCompare(b.name, 'de'))) (groups[x.category || 'Ohne Kategorie'] ||= []).push(x);
+  for (const x of [...state.dishes].sort((a, b) => a.name.localeCompare(b.name, 'de')))
+    for (const c of (x.categories.length ? x.categories : ['Ohne Kategorie'])) (groups[c] ||= []).push(x);
   const body = Object.keys(groups).sort((a, b) => a.localeCompare(b, 'de')).map(g => `<div class="group-title" data-group>${esc(g)}</div><div class="list" data-group>` +
     groups[g].map(x => `<button class="row" data-act="choose" data-id="${x.id}" data-name="${esc(x.name.toLowerCase())}"><div class="main">${esc(x.name)}</div>${e && e.dish_id === x.id ? '✓' : ''}</button>`).join('') + `</div>`).join('');
   return `<div class="sheet" data-day="${day}" data-slot="${slot}"><div class="sheet-head"><button data-act="close">Abbrechen</button><b>${DAYNAMES[(d.getDay() + 6) % 7]} · ${label}</b><button data-act="clearslot">Leeren</button></div>
@@ -351,28 +381,49 @@ function pickerHtml(day, slot) {
     <button class="btn full" style="margin-top:14px" data-act="newdish-from-pick">+ Neues Gericht anlegen</button></div></div>`;
 }
 
-function ingRow(i = {}) {
-  return `<div class="ing"><input class="in" name="amount" inputmode="decimal" placeholder="Menge" value="${esc(i.amount ?? '')}">
+const KIND_LABEL = { zutat: 'Zutat', gewuerz: 'Gewürz' };
+function ingRow(i = {}, kind = 'zutat') {
+  return `<div class="ing" data-kind="${kind}"><input class="in" name="amount" inputmode="decimal" placeholder="Menge" value="${esc(i.amount ?? '')}">
     <select class="in" name="unit">${UNITS.map(u => `<option${(i.unit || '') === u ? ' selected' : ''}>${esc(u)}</option>`).join('')}</select>
-    <input class="in" name="name" placeholder="Zutat" value="${esc(i.name || '')}"><button type="button" data-act="delingr" aria-label="Zutat entfernen">⊖</button></div>`;
+    <input class="in" name="name" list="dl-${kind}" autocomplete="off" placeholder="${KIND_LABEL[kind]}" value="${esc(i.name || '')}"><button type="button" data-act="delingr" aria-label="Entfernen">⊖</button></div>`;
 }
+function datalist(kind) {
+  const names = [...(state.catalog?.[kind]?.values() || [])].map(e => e.name).sort((a, b) => a.localeCompare(b, 'de'));
+  return `<datalist id="dl-${kind}">${names.map(n => `<option value="${esc(n)}">`).join('')}</datalist>`;
+}
+function catChip(c, on) { return `<button type="button" class="chip${on ? ' on' : ''}" data-act="togglecat" data-cat="${esc(c)}">${esc(c)}</button>`; }
 
 function dishFormHtml(d) {
   const isNew = !d;
-  d = d || { id: uid(), name: '', category: '', recipe_url: '', ingredients: [] };
-  const cats = [...new Set([...DEFAULT_CATS, ...categories()])];
+  d = d || normDish({ id: uid(), name: '' });
+  const cats = [...new Set([...DEFAULT_CATS, ...categories(), ...d.categories])];
   const ings = d.ingredients.length ? d.ingredients : [{}, {}, {}];
+  const spices = d.spices.length ? d.spices : [{}];
   return `<form class="sheet" id="dishform" data-id="${d.id}" data-new="${isNew ? 1 : 0}"><div class="sheet-head"><button type="button" data-act="close">Abbrechen</button><b>${isNew ? 'Neues Gericht' : 'Gericht bearbeiten'}</b><button type="submit">Sichern</button></div>
     <div class="sheet-body">
       <label class="f">Name</label><input class="in" name="dname" required value="${esc(d.name)}" placeholder="z. B. Spaghetti Bolognese">
-      <label class="f">Kategorie</label><input class="in" name="category" list="cats" value="${esc(d.category)}" placeholder="z. B. Pasta">
-      <datalist id="cats">${cats.map(c => `<option value="${esc(c)}">`).join('')}</datalist>
-      <label class="f">Zutaten</label><div id="ings">${ings.map(ingRow).join('')}</div>
-      <button type="button" class="btn full" data-act="addingr">+ Zutat</button>
-      <label class="f">Rezept-Link (optional, z. B. iCloud-Freigabelink zum PDF)</label><input class="in" name="recipe_url" type="url" value="${esc(d.recipe_url || '')}" placeholder="https://…">
-      ${d.recipe_url ? `<p class="hint"><a href="${esc(d.recipe_url)}" target="_blank" rel="noopener">Rezept öffnen ↗</a></p>` : ''}
+      <label class="f">Kategorien (mehrere möglich)</label><div class="catchips" id="catchips">${cats.map(c => catChip(c, d.categories.includes(c))).join('')}</div>
+      <div class="addrow" style="margin-top:8px"><input class="in" id="newcat" placeholder="Neue Kategorie"><button type="button" class="btn" data-act="addcat">+</button></div>
+      <label class="f">Zutaten</label><div id="ings-zutat">${ings.map(i => ingRow(i, 'zutat')).join('')}</div>
+      <button type="button" class="btn full" data-act="addingr" data-kind="zutat">+ Zutat</button>
+      <label class="f">Gewürze</label><div id="ings-gewuerz">${spices.map(i => ingRow(i, 'gewuerz')).join('')}</div>
+      <button type="button" class="btn full" data-act="addingr" data-kind="gewuerz">+ Gewürz</button>
+      ${datalist('zutat')}${datalist('gewuerz')}
+      <label class="cbx"><input type="checkbox" name="recipe_self" id="recipe_self"${d.recipe_self ? ' checked' : ''}> Rezept selbst erfasst</label>
+      <div id="recipe-src"${d.recipe_self ? ' hidden' : ''}>
+        <label class="f">Rezeptbuch (optional)</label>
+        <div class="addrow" style="margin-top:0"><input class="in" name="recipe_book" value="${esc(d.recipe_book)}" placeholder="Titel des Buchs"><input class="in" name="recipe_page" value="${esc(d.recipe_page)}" placeholder="Seite" inputmode="numeric" style="flex:0 0 80px"></div>
+        <label class="f">Rezept-Link (optional, z. B. iCloud-Freigabelink zum PDF)</label><input class="in" name="recipe_url" type="url" value="${esc(d.recipe_url)}" placeholder="https://…">
+        ${d.recipe_url ? `<p class="hint"><a href="${esc(d.recipe_url)}" target="_blank" rel="noopener">Rezept öffnen ↗</a></p>` : ''}
+      </div>
       ${isNew ? '' : '<button type="button" class="btn danger full" style="margin-top:18px" data-act="deldish">Gericht löschen</button>'}
     </div></form>`;
+}
+function addCat() {
+  const inp = $('#newcat'); const v = inp.value.trim(); if (!v) return;
+  const existing = [...document.querySelectorAll('#catchips .chip')].find(c => c.dataset.cat.toLowerCase() === v.toLowerCase());
+  if (existing) existing.classList.add('on'); else $('#catchips').insertAdjacentHTML('beforeend', catChip(v, true));
+  inp.value = '';
 }
 
 function settingsHtml() {
@@ -412,7 +463,7 @@ document.addEventListener('click', async ev => {
     case 'newdish': return openSheet(dishFormHtml());
     case 'newdish-from-pick': { const sh = el.closest('.sheet'); dlg.dataset.after = sh.dataset.day + '|' + sh.dataset.slot; return openSheet(dishFormHtml()); }
     case 'editdish': return openSheet(dishFormHtml(dishById(el.dataset.id)));
-    case 'addingr': { $('#ings').insertAdjacentHTML('beforeend', ingRow()); $('#ings .ing:last-child input[name=amount]').focus(); return; }
+    case 'addingr': { const k = el.dataset.kind; $('#ings-' + k).insertAdjacentHTML('beforeend', ingRow({}, k)); $(`#ings-${k} .ing:last-child input[name=amount]`).focus(); return; }
     case 'delingr': return el.closest('.ing').remove();
     case 'deldish': {
       const id = $('#dishform').dataset.id; const d = dishById(id);
@@ -426,6 +477,12 @@ document.addEventListener('click', async ev => {
       const k = 'ep.have.' + iso(state.week); const have = new Set(ls.get(k, []));
       have.has(el.dataset.key) ? have.delete(el.dataset.key) : have.add(el.dataset.key); ls.set(k, [...have]); return render();
     }
+    case 'togglespice': {
+      const k = 'ep.spice.' + iso(state.week); const s = new Set(ls.get(k, []));
+      s.has(el.dataset.key) ? s.delete(el.dataset.key) : s.add(el.dataset.key); ls.set(k, [...s]); return render();
+    }
+    case 'togglecat': return el.classList.toggle('on');
+    case 'addcat': return addCat();
     case 'addextra': return addExtra();
     case 'copy': { const t = listText(); try { await navigator.clipboard.writeText(t); toast('Liste kopiert'); } catch { prompt('Liste kopieren:', t); } return; }
     case 'share': { const t = listText(); if (navigator.share) { try { await navigator.share({ title: 'Einkaufsliste', text: t }); } catch {} } else { try { await navigator.clipboard.writeText(t); toast('Teilen nicht verfügbar – Liste kopiert'); } catch {} } return; }
@@ -456,15 +513,36 @@ document.addEventListener('input', e => {
   }
 });
 
+// Checkbox "Rezept selbst erfasst" & Einheit aus gespeicherter Zutat übernehmen
+document.addEventListener('change', e => {
+  if (e.target.id === 'recipe_self') $('#recipe-src').hidden = e.target.checked;
+  if (e.target.name === 'name' && e.target.closest('.ing')) {
+    const row = e.target.closest('.ing'); const unit = row.querySelector('[name=unit]');
+    const hit = state.catalog?.[row.dataset.kind]?.get(e.target.value.trim().toLowerCase());
+    if (hit && !unit.value && hit.unit) unit.value = hit.unit;
+  }
+});
+document.addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.id === 'newcat') { e.preventDefault(); addCat(); } });
+
 document.addEventListener('submit', async e => {
   if (e.target.id !== 'dishform') return; e.preventDefault();
   const f = e.target;
-  const ingredients = [...f.querySelectorAll('.ing')].map(r => ({
+  const rows = kind => [...f.querySelectorAll(`.ing[data-kind=${kind}]`)].map(r => ({
     amount: r.querySelector('[name=amount]').value.trim(), unit: r.querySelector('[name=unit]').value, name: r.querySelector('[name=name]').value.trim(),
   })).filter(i => i.name);
-  const d = { id: f.dataset.id, name: f.dname.value.trim(), category: f.category.value.trim(), recipe_url: f.recipe_url.value.trim(), ingredients };
+  const ingredients = rows('zutat'), spices = rows('gewuerz');
+  const cats = [...f.querySelectorAll('#catchips .chip.on')].map(c => c.dataset.cat);
+  const self = f.recipe_self.checked;
+  const d = { id: f.dataset.id, name: f.dname.value.trim(), categories: cats, category: cats[0] || '', ingredients, spices, recipe_self: self,
+    recipe_book: self ? '' : f.recipe_book.value.trim(), recipe_page: self ? '' : f.recipe_page.value.trim(), recipe_url: self ? '' : f.recipe_url.value.trim() };
   if (!d.name) return;
   const ok = await guard(() => store.saveDish(d)); if (!ok) return;
+  // Zutaten/Gewürze für spätere Vorschläge merken
+  const entries = [...ingredients.map(i => ['zutat', i]), ...spices.map(i => ['gewuerz', i])]
+    .map(([kind, i]) => ({ kind, name_key: i.name.toLowerCase(), name: i.name, unit: i.unit || '' }));
+  const uniq = [...new Map(entries.map(x => [x.kind + '|' + x.name_key, x])).values()];
+  await guard(() => store.saveCatalog(uniq));
+  for (const x of uniq) state.catalog[x.kind].set(x.name_key, x);
   const i = state.dishes.findIndex(x => x.id === d.id); if (i >= 0) state.dishes[i] = d; else state.dishes.push(d);
   const after = dlg.dataset.after; delete dlg.dataset.after;
   if (after) { const [day, slot] = after.split('|'); await guard(() => store.setSlot(day, slot, d.id, '')); state.plan[after] = { day, slot, dish_id: d.id, note: '' }; }
