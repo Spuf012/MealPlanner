@@ -1,0 +1,500 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Essensplaner">
+<meta name="theme-color" content="#f6f5f2" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#16171a" media="(prefers-color-scheme: dark)">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="icon" href="icon-192.png">
+<title>Essensplaner</title>
+<style>
+  :root {
+    --bg: #f6f5f2; --card: #ffffff; --text: #1d1d1f; --muted: #6e6e73;
+    --line: #e4e2dd; --accent: #2f7d4f; --accent-soft: #e3f1e8; --danger: #c0392b;
+    --chip: #efede8; --radius: 14px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #16171a; --card: #22242a; --text: #f2f2f2; --muted: #9a9ca3;
+      --line: #33363d; --accent: #5cc08a; --accent-soft: #1f3a2b; --danger: #ff6b5b;
+      --chip: #2c2f36;
+    }
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; background: var(--bg); color: var(--text);
+    font: 16px/1.4 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, sans-serif; }
+  body { padding: env(safe-area-inset-top) 0 calc(72px + env(safe-area-inset-bottom)); }
+  button, input, select { font: inherit; color: inherit; }
+  button { cursor: pointer; }
+  .wrap { max-width: 760px; margin: 0 auto; padding: 12px 16px 24px; }
+  header.top { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 8px 0 14px; }
+  header.top h1 { font-size: 28px; margin: 0; letter-spacing: -0.02em; }
+  .iconbtn { border: 0; background: var(--chip); border-radius: 999px; min-width: 40px; height: 40px; padding: 0 12px;
+    display: inline-flex; align-items: center; justify-content: center; gap: 6px; font-weight: 600; }
+  .iconbtn.primary { background: var(--accent); color: #fff; }
+  .weeknav { display: flex; align-items: center; justify-content: space-between; background: var(--card);
+    border-radius: var(--radius); padding: 6px; margin-bottom: 14px; border: 1px solid var(--line); }
+  .weeknav button { border: 0; background: transparent; width: 44px; height: 40px; border-radius: 10px; font-size: 20px; }
+  .weeknav button:active { background: var(--chip); }
+  .weeknav .label { text-align: center; }
+  .weeknav .label b { display: block; }
+  .weeknav .label span { font-size: 13px; color: var(--muted); }
+  .day { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); margin-bottom: 10px; overflow: hidden; }
+  .day.today { border-color: var(--accent); }
+  .day h3 { margin: 0; padding: 10px 14px 4px; font-size: 14px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+  .day.today h3 { color: var(--accent); }
+  .slot { display: flex; align-items: center; gap: 10px; width: 100%; border: 0; background: transparent; text-align: left;
+    padding: 10px 14px; border-top: 1px solid var(--line); }
+  .slot:first-of-type { border-top: 0; }
+  .slot:active { background: var(--chip); }
+  .slot .when { width: 56px; flex: none; font-size: 13px; color: var(--muted); }
+  .slot .what { flex: 1; font-weight: 500; }
+  .slot .what.empty { color: var(--muted); font-weight: 400; }
+  .slot .what.note { font-style: italic; }
+  .slot .cat { font-size: 12px; color: var(--muted); }
+  .search { width: 100%; padding: 11px 14px; border-radius: 12px; border: 1px solid var(--line); background: var(--card); margin-bottom: 10px; }
+  .chips { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 6px; margin-bottom: 8px; scrollbar-width: none; }
+  .chip { flex: none; border: 0; background: var(--chip); padding: 6px 12px; border-radius: 999px; font-size: 14px; }
+  .chip.on { background: var(--accent); color: #fff; }
+  .list { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
+  .row { display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-top: 1px solid var(--line); width: 100%;
+    border-left: 0; border-right: 0; border-bottom: 0; background: transparent; text-align: left; }
+  .row:first-child { border-top: 0; }
+  .row:active { background: var(--chip); }
+  .row .main { flex: 1; min-width: 0; }
+  .row .sub { font-size: 13px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .row.done .main { opacity: .45; text-decoration: line-through; }
+  .check { width: 24px; height: 24px; border-radius: 50%; border: 2px solid var(--muted); flex: none; display: grid; place-items: center; }
+  .row:not(.done) .check { border-color: var(--accent); background: var(--accent); }
+  .row:not(.done) .check::after { content: "✓"; color: #fff; font-size: 14px; font-weight: 700; }
+  .empty-state { text-align: center; color: var(--muted); padding: 40px 20px; }
+  .hint { font-size: 13px; color: var(--muted); margin: 8px 4px 14px; }
+  .actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 14px 0; }
+  .btn { border: 0; border-radius: 12px; padding: 13px 14px; font-weight: 600; background: var(--chip); }
+  .btn.primary { background: var(--accent); color: #fff; }
+  .btn.danger { background: transparent; color: var(--danger); }
+  .btn.full { grid-column: 1 / -1; width: 100%; }
+  nav.tabs { position: fixed; left: 0; right: 0; bottom: 0; display: flex; justify-content: center;
+    background: color-mix(in srgb, var(--bg) 88%, transparent); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+    border-top: 1px solid var(--line); padding: 6px 8px calc(6px + env(safe-area-inset-bottom)); z-index: 10; }
+  nav.tabs button { flex: 1; max-width: 160px; border: 0; background: transparent; padding: 6px 0; color: var(--muted);
+    display: flex; flex-direction: column; align-items: center; gap: 2px; font-size: 11px; font-weight: 600; }
+  nav.tabs button svg { width: 26px; height: 26px; }
+  nav.tabs button.on { color: var(--accent); }
+  dialog { border: 0; padding: 0; width: min(560px, 100%); max-width: 100%; max-height: 92vh; background: var(--bg); color: var(--text);
+    border-radius: 18px 18px 0 0; margin: auto auto 0; }
+  @media (min-width: 700px) { dialog { border-radius: 18px; margin: auto; } }
+  dialog::backdrop { background: rgba(0,0,0,.4); }
+  .sheet { display: flex; flex-direction: column; max-height: 92vh; }
+  .sheet-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px; border-bottom: 1px solid var(--line); }
+  .sheet-head b { font-size: 17px; }
+  .sheet-head button { border: 0; background: transparent; color: var(--accent); font-weight: 600; padding: 4px; }
+  .sheet-body { overflow-y: auto; padding: 14px 16px calc(20px + env(safe-area-inset-bottom)); }
+  label.f { display: block; font-size: 13px; color: var(--muted); margin: 12px 4px 6px; }
+  .in { width: 100%; padding: 11px 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--card); }
+  .ing { display: grid; grid-template-columns: 70px 78px 1fr 36px; gap: 6px; margin-bottom: 6px; }
+  .ing .in { padding: 10px 8px; }
+  .ing button { border: 0; background: transparent; color: var(--danger); font-size: 20px; }
+  .group-title { font-size: 13px; color: var(--muted); margin: 16px 4px 6px; text-transform: uppercase; letter-spacing: .04em; }
+  .toast { position: fixed; left: 50%; bottom: calc(90px + env(safe-area-inset-bottom)); transform: translateX(-50%);
+    background: var(--text); color: var(--bg); padding: 10px 16px; border-radius: 999px; font-size: 14px; opacity: 0;
+    transition: opacity .2s; pointer-events: none; z-index: 50; }
+  .toast.show { opacity: 1; }
+  .login { max-width: 380px; margin: 12vh auto 0; padding: 0 20px; }
+  .login h1 { font-size: 30px; margin-bottom: 4px; }
+  .banner { background: var(--accent-soft); border-radius: 12px; padding: 10px 14px; font-size: 13px; margin-bottom: 14px; }
+  .addrow { display: flex; gap: 8px; margin-top: 12px; }
+  .addrow .in { flex: 1; }
+</style>
+</head>
+<body>
+<div id="app"></div>
+<nav class="tabs" id="tabs" hidden>
+  <button data-tab="woche"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="3" y="5" width="18" height="16" rx="3"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>Woche</button>
+  <button data-tab="gerichte"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 13h16a8 8 0 0 1-16 0zM12 5v3M8 6l1 2M16 6l-1 2"/></svg>Gerichte</button>
+  <button data-tab="einkauf"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 4h2l2.4 11.2a2 2 0 0 0 2 1.6h7.7a2 2 0 0 0 2-1.5L21 8H6.2"/><circle cx="10" cy="20.5" r="1"/><circle cx="17" cy="20.5" r="1"/></svg>Einkauf</button>
+</nav>
+<dialog id="dlg"></dialog>
+<div class="toast" id="toast"></div>
+
+<script type="module">
+// ─────────────────────────────────────────────────────────────
+// KONFIGURATION – nach dem Anlegen des Supabase-Projekts ausfüllen.
+// Leer lassen = lokaler Testmodus (Daten nur auf diesem Gerät).
+const CONFIG = {
+  SUPABASE_URL: 'https://geurcsvzxfqrzirobngz.supabase.co',
+  SUPABASE_ANON_KEY: 'sb_publishable_joz98vTnth83tg8Ux-65Sw_LiD8q46J',
+};
+// ─────────────────────────────────────────────────────────────
+
+const SLOTS = [['mittag', 'Mittag'], ['abend', 'Abend']];
+const UNITS = ['', 'g', 'kg', 'ml', 'l', 'Stk', 'EL', 'TL', 'Prise', 'Pck', 'Dose', 'Bund', 'Zehe', 'Scheibe'];
+const DEFAULT_CATS = ['Fleisch', 'Geflügel', 'Fisch', 'Vegetarisch', 'Pasta', 'Suppe', 'Salat', 'Auflauf'];
+const DAYNAMES = ['Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag', 'Sonntag'];
+
+const $ = (s, el = document) => el.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const uid = () => (crypto.randomUUID ? crypto.randomUUID() : 'id-' + Date.now() + '-' + Math.random().toString(16).slice(2));
+const ls = {
+  get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch { return d; } },
+  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
+};
+
+// ── Datum-Helfer ─────────────────────────────────────────────
+const iso = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+const parseISO = s => { const [y, m, d] = s.split('-').map(Number); return new Date(y, m - 1, d); };
+const addDays = (d, n) => { const x = new Date(d); x.setDate(x.getDate() + n); return x; };
+const mondayOf = d => { const x = new Date(d.getFullYear(), d.getMonth(), d.getDate()); const wd = (x.getDay() + 6) % 7; return addDays(x, -wd); };
+const weekNo = d => { const t = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate())); const day = t.getUTCDay() || 7;
+  t.setUTCDate(t.getUTCDate() + 4 - day); const y0 = new Date(Date.UTC(t.getUTCFullYear(), 0, 1)); return Math.ceil(((t - y0) / 864e5 + 1) / 7); };
+const fmtShort = d => d.toLocaleDateString('de-DE', { day: 'numeric', month: 'short' });
+
+// ── Datenschicht ─────────────────────────────────────────────
+const LocalStore = {
+  mode: 'local',
+  async init() { return true; },
+  async session() { return true; },
+  async dishes() { return ls.get('ep.dishes', []); },
+  async saveDish(d) { const all = ls.get('ep.dishes', []); const i = all.findIndex(x => x.id === d.id);
+    if (i >= 0) all[i] = d; else all.push(d); ls.set('ep.dishes', all); return d; },
+  async deleteDish(id) { ls.set('ep.dishes', ls.get('ep.dishes', []).filter(x => x.id !== id));
+    const p = ls.get('ep.plan', {}); for (const k in p) if (p[k].dish_id === id) delete p[k]; ls.set('ep.plan', p); },
+  async plan(from, to) { const p = ls.get('ep.plan', {}); return Object.values(p).filter(e => e.day >= from && e.day <= to); },
+  async setSlot(day, slot, dish_id, note) { const p = ls.get('ep.plan', {}); const k = day + '|' + slot;
+    if (!dish_id && !note) delete p[k]; else p[k] = { day, slot, dish_id: dish_id || null, note: note || '' }; ls.set('ep.plan', p); },
+};
+
+const SupaStore = {
+  mode: 'cloud', sb: null,
+  async init() {
+    if (this.sb) return;
+    const { createClient } = await import('https://esm.sh/@supabase/supabase-js@2');
+    this.sb = createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_ANON_KEY, { auth: { persistSession: true, autoRefreshToken: true } });
+  },
+  async session() { const { data } = await this.sb.auth.getSession(); return !!data.session; },
+  async login(email, password) { const { error } = await this.sb.auth.signInWithPassword({ email, password }); if (error) throw error; },
+  async logout() { await this.sb.auth.signOut(); },
+  async dishes() { const { data, error } = await this.sb.from('dishes').select('*').order('name'); if (error) throw error; return data; },
+  async saveDish(d) { const { error } = await this.sb.from('dishes').upsert(d); if (error) throw error; return d; },
+  async deleteDish(id) { const { error } = await this.sb.from('dishes').delete().eq('id', id); if (error) throw error; },
+  async plan(from, to) { const { data, error } = await this.sb.from('plan').select('*').gte('day', from).lte('day', to); if (error) throw error; return data; },
+  async setSlot(day, slot, dish_id, note) {
+    const q = (!dish_id && !note)
+      ? this.sb.from('plan').delete().eq('day', day).eq('slot', slot)
+      : this.sb.from('plan').upsert({ day, slot, dish_id: dish_id || null, note: note || '' });
+    const { error } = await q; if (error) throw error;
+  },
+};
+
+const store = (CONFIG.SUPABASE_URL && CONFIG.SUPABASE_ANON_KEY) ? SupaStore : LocalStore;
+
+// ── Zustand ─────────────────────────────────────────────────
+const state = {
+  tab: ls.get('ep.tab', 'woche'),
+  week: mondayOf(new Date()),
+  dishes: [],
+  plan: {},           // 'YYYY-MM-DD|slot' → {day, slot, dish_id, note}
+  search: '',
+  cat: '',
+};
+const settings = Object.assign({ shortcut: 'Einkaufsliste' }, ls.get('ep.settings', {}));
+
+function toast(msg) { const t = $('#toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toast._t); toast._t = setTimeout(() => t.classList.remove('show'), 2200); }
+async function guard(fn) { try { return await fn(); } catch (e) { console.error(e); toast('Fehler: ' + (e.message || e)); } }
+
+async function loadDishes() { state.dishes = (await store.dishes()).map(d => ({ ...d, ingredients: d.ingredients || [] })); }
+async function loadPlan() {
+  const from = iso(state.week), to = iso(addDays(state.week, 6));
+  state.plan = {}; for (const e of await store.plan(from, to)) state.plan[e.day + '|' + e.slot] = e;
+}
+const dishById = id => state.dishes.find(d => d.id === id);
+const categories = () => [...new Set([...state.dishes.map(d => d.category).filter(Boolean)])].sort((a, b) => a.localeCompare(b, 'de'));
+
+// ── Rendering ───────────────────────────────────────────────
+function render() {
+  document.querySelectorAll('#tabs button').forEach(b => b.classList.toggle('on', b.dataset.tab === state.tab));
+  const app = $('#app');
+  if (state.tab === 'woche') app.innerHTML = viewWeek();
+  else if (state.tab === 'gerichte') app.innerHTML = viewDishes();
+  else app.innerHTML = viewShopping();
+}
+
+function weekNav() {
+  const end = addDays(state.week, 6);
+  const isNow = iso(state.week) === iso(mondayOf(new Date()));
+  return `<div class="weeknav">
+    <button data-act="prevweek" aria-label="Vorherige Woche">‹</button>
+    <div class="label" data-act="thisweek"><b>KW ${weekNo(state.week)}${isNow ? ' · diese Woche' : ''}</b><span>${fmtShort(state.week)} – ${fmtShort(end)}</span></div>
+    <button data-act="nextweek" aria-label="Nächste Woche">›</button></div>`;
+}
+
+function viewWeek() {
+  const today = iso(new Date());
+  let html = `<div class="wrap"><header class="top"><h1>Wochenplan</h1>
+    <button class="iconbtn" data-act="settings" aria-label="Einstellungen">⚙︎</button></header>`;
+  if (store.mode === 'local') html += `<div class="banner">Testmodus: Daten werden nur auf diesem Gerät gespeichert.</div>`;
+  html += weekNav();
+  for (let i = 0; i < 7; i++) {
+    const d = addDays(state.week, i), key = iso(d);
+    html += `<section class="day${key === today ? ' today' : ''}"><h3>${DAYNAMES[i]} · ${fmtShort(d)}</h3>`;
+    for (const [slot, label] of SLOTS) {
+      const e = state.plan[key + '|' + slot]; const dish = e && dishById(e.dish_id);
+      let what;
+      if (dish) what = `<span class="what">${esc(dish.name)}${dish.category ? `<div class="cat">${esc(dish.category)}</div>` : ''}</span>`;
+      else if (e && e.note) what = `<span class="what note">${esc(e.note)}</span>`;
+      else what = `<span class="what empty">+ Gericht wählen</span>`;
+      html += `<button class="slot" data-act="pick" data-day="${key}" data-slot="${slot}"><span class="when">${label}</span>${what}</button>`;
+    }
+    html += `</section>`;
+  }
+  return html + `</div>`;
+}
+
+function viewDishes() {
+  const cats = categories();
+  const q = state.search.trim().toLowerCase();
+  const list = state.dishes
+    .filter(d => !state.cat || d.category === state.cat)
+    .filter(d => !q || d.name.toLowerCase().includes(q) || d.ingredients.some(i => (i.name || '').toLowerCase().includes(q)))
+    .sort((a, b) => a.name.localeCompare(b.name, 'de'));
+  let html = `<div class="wrap"><header class="top"><h1>Gerichte</h1><button class="iconbtn primary" data-act="newdish">+ Neu</button></header>
+    <input class="search" id="search" type="search" placeholder="Suchen (Name oder Zutat)" value="${esc(state.search)}">`;
+  if (cats.length) html += `<div class="chips"><button class="chip${!state.cat ? ' on' : ''}" data-act="cat" data-cat="">Alle</button>${cats.map(c => `<button class="chip${state.cat === c ? ' on' : ''}" data-act="cat" data-cat="${esc(c)}">${esc(c)}</button>`).join('')}</div>`;
+  if (!state.dishes.length) return html + `<div class="empty-state">Noch keine Gerichte.<br>Tippe auf „+ Neu“.</div></div>`;
+  if (!list.length) return html + `<div class="empty-state">Nichts gefunden.</div></div>`;
+  html += `<div class="list">` + list.map(d => `<button class="row" data-act="editdish" data-id="${d.id}"><div class="main"><div>${esc(d.name)}</div>
+    <div class="sub">${esc([d.category, d.ingredients.map(i => i.name).filter(Boolean).join(', ')].filter(Boolean).join(' · ')) || '&nbsp;'}</div></div>${d.recipe_url ? '<span title="Rezept">📄</span>' : ''}</button>`).join('') + `</div>`;
+  return html + `<p class="hint">${state.dishes.length} Gerichte</p></div>`;
+}
+
+// Einkaufsliste aus dem Wochenplan zusammenrechnen
+function parseAmount(a) { if (a == null || a === '') return null; const n = Number(String(a).replace(',', '.').trim()); return isFinite(n) ? n : NaN; }
+function fmtNum(n) { return Number.isInteger(n) ? String(n) : n.toLocaleString('de-DE', { maximumFractionDigits: 2 }); }
+function shoppingItems() {
+  const map = new Map();
+  for (const e of Object.values(state.plan)) {
+    const dish = dishById(e.dish_id); if (!dish) continue;
+    for (const ing of dish.ingredients) {
+      const name = (ing.name || '').trim(); if (!name) continue;
+      const unit = ing.unit || ''; const key = name.toLowerCase() + '|' + unit;
+      let it = map.get(key); if (!it) { it = { key, name, unit, sum: 0, hasNum: false, extra: [], dishes: new Set() }; map.set(key, it); }
+      const n = parseAmount(ing.amount);
+      if (n === null) {} else if (isNaN(n)) it.extra.push(ing.amount); else { it.sum += n; it.hasNum = true; }
+      it.dishes.add(dish.name);
+    }
+  }
+  const extras = ls.get('ep.extra.' + iso(state.week), []);
+  for (const x of extras) map.set('extra|' + x, { key: 'extra|' + x, name: x, unit: '', sum: 0, hasNum: false, extra: [], dishes: new Set(), isExtra: true });
+  return [...map.values()].sort((a, b) => a.name.localeCompare(b.name, 'de'));
+}
+function itemText(it) {
+  const parts = [];
+  let sum = it.sum, unit = it.unit;
+  if (unit === 'g' && sum >= 1000) { sum /= 1000; unit = 'kg'; }
+  if (unit === 'ml' && sum >= 1000) { sum /= 1000; unit = 'l'; }
+  if (it.hasNum) parts.push(fmtNum(sum) + (unit ? ' ' + unit : ''));
+  else if (it.unit && !it.extra.length) parts.push(it.unit);
+  if (it.extra.length) parts.push(it.extra.join(' + ') + (it.unit && !it.hasNum ? ' ' + it.unit : ''));
+  return parts.length ? `${it.name} (${parts.join(' + ')})` : it.name;
+}
+
+function viewShopping() {
+  const items = shoppingItems();
+  const have = new Set(ls.get('ep.have.' + iso(state.week), []));
+  let html = `<div class="wrap"><header class="top"><h1>Einkauf</h1><button class="iconbtn" data-act="settings" aria-label="Einstellungen">⚙︎</button></header>` + weekNav();
+  if (!items.length) {
+    html += `<div class="empty-state">Für diese Woche ist noch nichts geplant.</div>`;
+  } else {
+    html += `<p class="hint">Tippe an, was schon zu Hause ist – das wird durchgestrichen und nicht übertragen.</p><div class="list">` +
+      items.map(it => `<button class="row${have.has(it.key) ? ' done' : ''}" data-act="toggle" data-key="${esc(it.key)}"><span class="check"></span>
+        <div class="main"><div>${esc(itemText(it))}</div><div class="sub">${it.isExtra ? 'zusätzlich' : esc([...it.dishes].join(', '))}</div></div></button>`).join('') + `</div>`;
+  }
+  html += `<div class="addrow"><input class="in" id="extra" placeholder="Weiteres hinzufügen (z. B. Milch)"><button class="btn" data-act="addextra">+</button></div>`;
+  const n = items.filter(i => !have.has(i.key)).length;
+  html += `<div class="actions"><button class="btn primary full" data-act="toreminders" ${n ? '' : 'disabled'}>An Erinnerungen senden (${n})</button>
+    <button class="btn" data-act="copy" ${n ? '' : 'disabled'}>Kopieren</button><button class="btn" data-act="share" ${n ? '' : 'disabled'}>Teilen …</button></div>`;
+  return html + `</div>`;
+}
+
+function listText() {
+  const have = new Set(ls.get('ep.have.' + iso(state.week), []));
+  return shoppingItems().filter(i => !have.has(i.key)).map(itemText).join('\n');
+}
+
+// ── Dialoge ────────────────────────────────────────────────
+const dlg = $('#dlg');
+function openSheet(html) { dlg.innerHTML = html; if (!dlg.open) dlg.showModal(); }
+function closeSheet() { dlg.close(); }
+dlg.addEventListener('click', e => { if (e.target === dlg) closeSheet(); });
+
+function pickerHtml(day, slot) {
+  const e = state.plan[day + '|' + slot];
+  const d = parseISO(day); const label = SLOTS.find(s => s[0] === slot)[1];
+  const groups = {};
+  for (const x of [...state.dishes].sort((a, b) => a.name.localeCompare(b.name, 'de'))) (groups[x.category || 'Ohne Kategorie'] ||= []).push(x);
+  const body = Object.keys(groups).sort((a, b) => a.localeCompare(b, 'de')).map(g => `<div class="group-title" data-group>${esc(g)}</div><div class="list" data-group>` +
+    groups[g].map(x => `<button class="row" data-act="choose" data-id="${x.id}" data-name="${esc(x.name.toLowerCase())}"><div class="main">${esc(x.name)}</div>${e && e.dish_id === x.id ? '✓' : ''}</button>`).join('') + `</div>`).join('');
+  return `<div class="sheet" data-day="${day}" data-slot="${slot}"><div class="sheet-head"><button data-act="close">Abbrechen</button><b>${DAYNAMES[(d.getDay() + 6) % 7]} · ${label}</b><button data-act="clearslot">Leeren</button></div>
+    <div class="sheet-body"><input class="search" id="pick-search" type="search" placeholder="Gericht suchen">
+    ${state.dishes.length ? body : '<div class="empty-state">Noch keine Gerichte angelegt.</div>'}
+    <label class="f">Oder Freitext (z. B. Reste, Essen gehen)</label>
+    <div class="addrow" style="margin-top:0"><input class="in" id="pick-note" value="${esc(e && !e.dish_id ? e.note : '')}" placeholder="Freitext"><button class="btn" data-act="savenote">OK</button></div>
+    <button class="btn full" style="margin-top:14px" data-act="newdish-from-pick">+ Neues Gericht anlegen</button></div></div>`;
+}
+
+function ingRow(i = {}) {
+  return `<div class="ing"><input class="in" name="amount" inputmode="decimal" placeholder="Menge" value="${esc(i.amount ?? '')}">
+    <select class="in" name="unit">${UNITS.map(u => `<option${(i.unit || '') === u ? ' selected' : ''}>${esc(u)}</option>`).join('')}</select>
+    <input class="in" name="name" placeholder="Zutat" value="${esc(i.name || '')}"><button type="button" data-act="delingr" aria-label="Zutat entfernen">⊖</button></div>`;
+}
+
+function dishFormHtml(d) {
+  const isNew = !d;
+  d = d || { id: uid(), name: '', category: '', recipe_url: '', ingredients: [] };
+  const cats = [...new Set([...DEFAULT_CATS, ...categories()])];
+  const ings = d.ingredients.length ? d.ingredients : [{}, {}, {}];
+  return `<form class="sheet" id="dishform" data-id="${d.id}" data-new="${isNew ? 1 : 0}"><div class="sheet-head"><button type="button" data-act="close">Abbrechen</button><b>${isNew ? 'Neues Gericht' : 'Gericht bearbeiten'}</b><button type="submit">Sichern</button></div>
+    <div class="sheet-body">
+      <label class="f">Name</label><input class="in" name="dname" required value="${esc(d.name)}" placeholder="z. B. Spaghetti Bolognese">
+      <label class="f">Kategorie</label><input class="in" name="category" list="cats" value="${esc(d.category)}" placeholder="z. B. Pasta">
+      <datalist id="cats">${cats.map(c => `<option value="${esc(c)}">`).join('')}</datalist>
+      <label class="f">Zutaten</label><div id="ings">${ings.map(ingRow).join('')}</div>
+      <button type="button" class="btn full" data-act="addingr">+ Zutat</button>
+      <label class="f">Rezept-Link (optional, z. B. iCloud-Freigabelink zum PDF)</label><input class="in" name="recipe_url" type="url" value="${esc(d.recipe_url || '')}" placeholder="https://…">
+      ${d.recipe_url ? `<p class="hint"><a href="${esc(d.recipe_url)}" target="_blank" rel="noopener">Rezept öffnen ↗</a></p>` : ''}
+      ${isNew ? '' : '<button type="button" class="btn danger full" style="margin-top:18px" data-act="deldish">Gericht löschen</button>'}
+    </div></form>`;
+}
+
+function settingsHtml() {
+  return `<div class="sheet"><div class="sheet-head"><span></span><b>Einstellungen</b><button data-act="close">Fertig</button></div><div class="sheet-body">
+    <label class="f">Name des Kurzbefehls für „An Erinnerungen senden“</label><input class="in" id="set-shortcut" value="${esc(settings.shortcut)}">
+    <p class="hint">Der Kurzbefehl muss auf iPhone/iPad/Mac genau so heißen. Siehe Anleitung.</p>
+    <p class="hint">Speichermodus: <b>${store.mode === 'cloud' ? 'Cloud (Supabase) – für die Familie geteilt' : 'Lokal (nur dieses Gerät)'}</b></p>
+    ${store.mode === 'cloud' ? '<button class="btn danger full" data-act="logout">Abmelden</button>' : ''}
+  </div></div>`;
+}
+
+// ── Aktionen ───────────────────────────────────────────────
+async function refreshWeek() { await guard(loadPlan); render(); }
+
+document.addEventListener('click', async ev => {
+  const el = ev.target.closest('[data-act], [data-tab]'); if (!el) return;
+  if (el.dataset.tab) { state.tab = el.dataset.tab; ls.set('ep.tab', state.tab); render(); window.scrollTo(0, 0); return; }
+  const act = el.dataset.act;
+  switch (act) {
+    case 'prevweek': state.week = addDays(state.week, -7); return refreshWeek();
+    case 'nextweek': state.week = addDays(state.week, 7); return refreshWeek();
+    case 'thisweek': state.week = mondayOf(new Date()); return refreshWeek();
+    case 'close': return closeSheet();
+    case 'settings': return openSheet(settingsHtml());
+    case 'logout': await store.logout(); location.reload(); return;
+    case 'cat': state.cat = el.dataset.cat; return render();
+    case 'pick': return openSheet(pickerHtml(el.dataset.day, el.dataset.slot));
+    case 'choose': case 'clearslot': case 'savenote': {
+      const sh = el.closest('.sheet'); const { day, slot } = sh.dataset;
+      const dish_id = act === 'choose' ? el.dataset.id : null;
+      const note = act === 'savenote' ? $('#pick-note').value.trim() : '';
+      await guard(() => store.setSlot(day, slot, dish_id, note));
+      if (dish_id || note) state.plan[day + '|' + slot] = { day, slot, dish_id, note }; else delete state.plan[day + '|' + slot];
+      closeSheet(); return render();
+    }
+    case 'newdish': return openSheet(dishFormHtml());
+    case 'newdish-from-pick': { const sh = el.closest('.sheet'); dlg.dataset.after = sh.dataset.day + '|' + sh.dataset.slot; return openSheet(dishFormHtml()); }
+    case 'editdish': return openSheet(dishFormHtml(dishById(el.dataset.id)));
+    case 'addingr': { $('#ings').insertAdjacentHTML('beforeend', ingRow()); $('#ings .ing:last-child input[name=amount]').focus(); return; }
+    case 'delingr': return el.closest('.ing').remove();
+    case 'deldish': {
+      const id = $('#dishform').dataset.id; const d = dishById(id);
+      if (!confirm(`„${d.name}“ wirklich löschen? Es wird auch aus allen Wochenplänen entfernt.`)) return;
+      await guard(() => store.deleteDish(id));
+      state.dishes = state.dishes.filter(x => x.id !== id);
+      for (const k in state.plan) if (state.plan[k].dish_id === id) delete state.plan[k];
+      closeSheet(); return render();
+    }
+    case 'toggle': {
+      const k = 'ep.have.' + iso(state.week); const have = new Set(ls.get(k, []));
+      have.has(el.dataset.key) ? have.delete(el.dataset.key) : have.add(el.dataset.key); ls.set(k, [...have]); return render();
+    }
+    case 'addextra': return addExtra();
+    case 'copy': { const t = listText(); try { await navigator.clipboard.writeText(t); toast('Liste kopiert'); } catch { prompt('Liste kopieren:', t); } return; }
+    case 'share': { const t = listText(); if (navigator.share) { try { await navigator.share({ title: 'Einkaufsliste', text: t }); } catch {} } else { try { await navigator.clipboard.writeText(t); toast('Teilen nicht verfügbar – Liste kopiert'); } catch {} } return; }
+    case 'toreminders': {
+      const t = listText();
+      location.href = 'shortcuts://run-shortcut?name=' + encodeURIComponent(settings.shortcut) + '&input=text&text=' + encodeURIComponent(t);
+      return;
+    }
+  }
+});
+
+function addExtra() {
+  const inp = $('#extra'); const v = inp.value.trim(); if (!v) return;
+  const k = 'ep.extra.' + iso(state.week); const ex = ls.get(k, []); if (!ex.includes(v)) ex.push(v); ls.set(k, ex);
+  render(); $('#extra').focus();
+}
+
+document.addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.id === 'extra') { e.preventDefault(); addExtra(); }
+  if (e.key === 'Enter' && e.target.id === 'pick-note') { e.preventDefault(); $('[data-act=savenote]').click(); } });
+
+document.addEventListener('input', e => {
+  if (e.target.id === 'search') { state.search = e.target.value; const pos = e.target.selectionStart; render(); const s = $('#search'); s.focus(); s.setSelectionRange(pos, pos); }
+  if (e.target.id === 'set-shortcut') { settings.shortcut = e.target.value.trim() || 'Einkaufsliste'; ls.set('ep.settings', settings); }
+  if (e.target.id === 'pick-search') {
+    const q = e.target.value.trim().toLowerCase();
+    dlg.querySelectorAll('[data-act=choose]').forEach(b => b.hidden = q && !b.dataset.name.includes(q));
+    dlg.querySelectorAll('.list[data-group]').forEach(l => { const any = [...l.children].some(c => !c.hidden); l.hidden = !any; l.previousElementSibling.hidden = !any; });
+  }
+});
+
+document.addEventListener('submit', async e => {
+  if (e.target.id !== 'dishform') return; e.preventDefault();
+  const f = e.target;
+  const ingredients = [...f.querySelectorAll('.ing')].map(r => ({
+    amount: r.querySelector('[name=amount]').value.trim(), unit: r.querySelector('[name=unit]').value, name: r.querySelector('[name=name]').value.trim(),
+  })).filter(i => i.name);
+  const d = { id: f.dataset.id, name: f.dname.value.trim(), category: f.category.value.trim(), recipe_url: f.recipe_url.value.trim(), ingredients };
+  if (!d.name) return;
+  const ok = await guard(() => store.saveDish(d)); if (!ok) return;
+  const i = state.dishes.findIndex(x => x.id === d.id); if (i >= 0) state.dishes[i] = d; else state.dishes.push(d);
+  const after = dlg.dataset.after; delete dlg.dataset.after;
+  if (after) { const [day, slot] = after.split('|'); await guard(() => store.setSlot(day, slot, d.id, '')); state.plan[after] = { day, slot, dish_id: d.id, note: '' }; }
+  closeSheet(); toast('Gespeichert'); render();
+});
+
+document.addEventListener('visibilitychange', async () => {
+  if (document.visibilityState === 'visible' && store.mode === 'cloud' && !dlg.open) { await guard(async () => { await loadDishes(); await loadPlan(); }); render(); }
+});
+
+// ── Login & Start ──────────────────────────────────────────
+function loginView(msg = '') {
+  $('#tabs').hidden = true;
+  $('#app').innerHTML = `<form class="login" id="loginform"><h1>Essensplaner</h1><p class="hint">Mit dem Familien-Zugang anmelden.</p>
+    <label class="f">E-Mail</label><input class="in" name="email" type="email" autocomplete="username" required>
+    <label class="f">Passwort</label><input class="in" name="pw" type="password" autocomplete="current-password" required>
+    ${msg ? `<p class="hint" style="color:var(--danger)">${esc(msg)}</p>` : ''}
+    <button class="btn primary full" style="margin-top:18px">Anmelden</button></form>`;
+  $('#loginform').addEventListener('submit', async e => {
+    e.preventDefault();
+    try { await store.login(e.target.email.value.trim(), e.target.pw.value); start(); }
+    catch (err) { loginView('Anmeldung fehlgeschlagen: ' + (err.message || err)); }
+  });
+}
+
+async function start() {
+  try { await store.init(); } catch (e) { $('#app').innerHTML = `<div class="empty-state">Verbindung fehlgeschlagen.<br>${esc(e.message || e)}</div>`; return; }
+  if (!(await store.session())) return loginView();
+  $('#tabs').hidden = false;
+  $('#app').innerHTML = `<div class="empty-state">Lade …</div>`;
+  await guard(async () => { await loadDishes(); await loadPlan(); });
+  render();
+}
+start();
+</script>
+</body>
+</html>
