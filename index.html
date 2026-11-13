@@ -27,6 +27,7 @@
     }
   }
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  [hidden] { display: none !important; }
   html, body { margin: 0; background: var(--bg); color: var(--text);
     font: 16px/1.4 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, sans-serif; }
   body { padding: env(safe-area-inset-top) 0 calc(72px + env(safe-area-inset-bottom)); }
@@ -128,7 +129,7 @@
 // KONFIGURATION – nach dem Anlegen des Supabase-Projekts ausfüllen.
 // Leer lassen = lokaler Testmodus (Daten nur auf diesem Gerät).
 const CONFIG = {
-  SUPABASE_URL: 'https://geurcsvzxfqrzirobngz.supabase.co/rest/v1/',
+  SUPABASE_URL: 'https://geurcsvzxfqrzirobngz.supabase.co',
   SUPABASE_ANON_KEY: 'sb_publishable_joz98vTnth83tg8Ux-65Sw_LiD8q46J',
 };
 // ─────────────────────────────────────────────────────────────
@@ -175,7 +176,9 @@ const SupaStore = {
   async init() {
     if (this.sb) return;
     const { createClient } = await import('https://esm.sh/@supabase/supabase-js@2');
-    this.sb = createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_ANON_KEY, { auth: { persistSession: true, autoRefreshToken: true } });
+    // Nur "https://xyz.supabase.co" verwenden – Pfade/Schrägstriche am Ende entfernen
+    const url = new URL(CONFIG.SUPABASE_URL.trim()).origin;
+    this.sb = createClient(url, CONFIG.SUPABASE_ANON_KEY.trim(), { auth: { persistSession: true, autoRefreshToken: true } });
   },
   async session() { const { data } = await this.sb.auth.getSession(); return !!data.session; },
   async login(email, password) { const { error } = await this.sb.auth.signInWithPassword({ email, password }); if (error) throw error; },
@@ -386,6 +389,7 @@ async function refreshWeek() { await guard(loadPlan); render(); }
 
 document.addEventListener('click', async ev => {
   const el = ev.target.closest('[data-act], [data-tab]'); if (!el) return;
+  if (!state.loggedIn) return;
   if (el.dataset.tab) { state.tab = el.dataset.tab; ls.set('ep.tab', state.tab); render(); window.scrollTo(0, 0); return; }
   const act = el.dataset.act;
   switch (act) {
@@ -488,7 +492,8 @@ function loginView(msg = '') {
 
 async function start() {
   try { await store.init(); } catch (e) { $('#app').innerHTML = `<div class="empty-state">Verbindung fehlgeschlagen.<br>${esc(e.message || e)}</div>`; return; }
-  if (!(await store.session())) return loginView();
+  if (!(await store.session())) { state.loggedIn = false; return loginView(); }
+  state.loggedIn = true;
   $('#tabs').hidden = false;
   $('#app').innerHTML = `<div class="empty-state">Lade …</div>`;
   await guard(async () => { await loadDishes(); await loadPlan(); });
