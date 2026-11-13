@@ -102,9 +102,12 @@
   .sheet-body { overflow-y: auto; padding: 14px 16px calc(20px + env(safe-area-inset-bottom)); }
   label.f { display: block; font-size: 13px; color: var(--muted); margin: 12px 4px 6px; }
   .in { width: 100%; padding: 11px 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--card); }
-  .ing { display: grid; grid-template-columns: 70px 78px 1fr 36px; gap: 6px; margin-bottom: 6px; }
+  .ing { display: grid; grid-template-columns: 62px 74px 1fr 40px 28px; gap: 5px; margin-bottom: 6px; align-items: center; }
+  .ing .opt { border: 1px solid var(--line); background: var(--card); color: var(--muted); border-radius: 8px; height: 38px; font-size: 12px; font-weight: 600; padding: 0; }
+  .ing .opt.on { background: var(--accent-soft); color: var(--accent); border-color: var(--accent); }
+  .opt-tag { font-size: 12px; color: var(--accent); font-weight: 600; }
   .ing .in { padding: 10px 8px; }
-  .ing button { border: 0; background: transparent; color: var(--danger); font-size: 20px; }
+  .ing [data-act=delingr] { border: 0; background: transparent; color: var(--danger); font-size: 20px; padding: 0; }
   .group-title { font-size: 13px; color: var(--muted); margin: 16px 4px 6px; text-transform: uppercase; letter-spacing: .04em; }
   .toast { position: fixed; left: 50%; bottom: calc(90px + env(safe-area-inset-bottom)); transform: translateX(-50%);
     background: var(--text); color: var(--bg); padding: 10px 16px; border-radius: 999px; font-size: 14px; opacity: 0;
@@ -300,10 +303,12 @@ function viewDishes() {
 function parseAmount(a) { if (a == null || a === '') return null; const n = Number(String(a).replace(',', '.').trim()); return isFinite(n) ? n : NaN; }
 function fmtNum(n) { return Number.isInteger(n) ? String(n) : n.toLocaleString('de-DE', { maximumFractionDigits: 2 }); }
 function shoppingItems(field = 'ingredients') {
+  // field: 'ingredients' (Pflicht-Zutaten), 'optional' (optionale Zutaten), 'spices'
   const map = new Map();
   for (const e of Object.values(state.plan)) {
     const dish = dishById(e.dish_id); if (!dish) continue;
-    for (const ing of dish[field]) {
+    const src = field === 'spices' ? dish.spices : dish.ingredients.filter(i => field === 'optional' ? i.optional : !i.optional);
+    for (const ing of src) {
       const name = (ing.name || '').trim(); if (!name) continue;
       const unit = ing.unit || ''; const key = name.toLowerCase() + '|' + unit;
       let it = map.get(key); if (!it) { it = { key, name, unit, sum: 0, hasNum: false, extra: [], dishes: new Set() }; map.set(key, it); }
@@ -330,10 +335,11 @@ function itemText(it) {
 function viewShopping() {
   const items = shoppingItems();
   const spices = shoppingItems('spices');
+  const optional = shoppingItems('optional');
   const have = new Set(ls.get('ep.have.' + iso(state.week), []));
   const spiceSel = new Set(ls.get('ep.spice.' + iso(state.week), []));
   let html = `<div class="wrap"><header class="top"><h1>Einkauf</h1><button class="iconbtn" data-act="settings" aria-label="Einstellungen">⚙︎</button></header>` + weekNav();
-  if (!items.length && !spices.length) {
+  if (!items.length && !spices.length && !optional.length) {
     html += `<div class="empty-state">Für diese Woche ist noch nichts geplant.</div>`;
   }
   if (items.length) {
@@ -341,13 +347,18 @@ function viewShopping() {
       items.map(it => `<button class="row${have.has(it.key) ? ' done' : ''}" data-act="toggle" data-key="${esc(it.key)}"><span class="check"></span>
         <div class="main"><div>${esc(itemText(it))}</div><div class="sub">${it.isExtra ? 'zusätzlich' : esc([...it.dishes].join(', '))}</div></div></button>`).join('') + `</div>`;
   }
+  if (optional.length) {
+    html += `<div class="group-title">Optional</div><p class="hint" style="margin-top:0">Tippe an, was mit auf die Liste soll.</p><div class="list">` +
+      optional.map(it => `<button class="row spice${spiceSel.has('opt|' + it.key) ? ' on' : ''}" data-act="togglespice" data-key="${esc('opt|' + it.key)}"><span class="check"></span>
+        <div class="main"><div>${esc(itemText(it))}</div><div class="sub">${esc([...it.dishes].join(', '))}</div></div></button>`).join('') + `</div>`;
+  }
   if (spices.length) {
     html += `<div class="group-title">Gewürze</div><p class="hint" style="margin-top:0">Tippe an, welche Gewürze mit auf die Liste sollen.</p><div class="list">` +
       spices.map(it => `<button class="row spice${spiceSel.has(it.key) ? ' on' : ''}" data-act="togglespice" data-key="${esc(it.key)}"><span class="check"></span>
         <div class="main"><div>${esc(itemText(it))}</div><div class="sub">${esc([...it.dishes].join(', '))}</div></div></button>`).join('') + `</div>`;
   }
   html += `<div class="addrow"><input class="in" id="extra" placeholder="Weiteres hinzufügen (z. B. Milch)"><button class="btn" data-act="addextra">+</button></div>`;
-  const n = items.filter(i => !have.has(i.key)).length + spices.filter(i => spiceSel.has(i.key)).length;
+  const n = items.filter(i => !have.has(i.key)).length + spices.filter(i => spiceSel.has(i.key)).length + optional.filter(i => spiceSel.has('opt|' + i.key)).length;
   html += `<div class="actions"><button class="btn primary full" data-act="toreminders" ${n ? '' : 'disabled'}>An Erinnerungen senden (${n})</button>
     <button class="btn" data-act="copy" ${n ? '' : 'disabled'}>Kopieren</button><button class="btn" data-act="share" ${n ? '' : 'disabled'}>Teilen …</button></div>`;
   return html + `</div>`;
@@ -356,7 +367,8 @@ function viewShopping() {
 function listText() {
   const have = new Set(ls.get('ep.have.' + iso(state.week), []));
   const spiceSel = new Set(ls.get('ep.spice.' + iso(state.week), []));
-  return [...shoppingItems().filter(i => !have.has(i.key)), ...shoppingItems('spices').filter(i => spiceSel.has(i.key))].map(itemText).join('\n');
+  return [...shoppingItems().filter(i => !have.has(i.key)), ...shoppingItems('optional').filter(i => spiceSel.has('opt|' + i.key)),
+    ...shoppingItems('spices').filter(i => spiceSel.has(i.key))].map(itemText).join('\n');
 }
 
 // ── Dialoge ────────────────────────────────────────────────
@@ -365,14 +377,52 @@ function openSheet(html) { dlg.innerHTML = html; if (!dlg.open) dlg.showModal();
 function closeSheet() { dlg.close(); }
 dlg.addEventListener('click', e => { if (e.target === dlg) closeSheet(); });
 
+const picker = { cat: null, q: '', random: null };
+const NOCAT = 'Ohne Kategorie';
+function pickerCats() {
+  const cats = categories();
+  if (state.dishes.some(d => !d.categories.length)) cats.push(NOCAT);
+  return cats;
+}
+function pickerPool() {
+  if (picker.cat === null || picker.cat === '*') return state.dishes;
+  return state.dishes.filter(d => picker.cat === NOCAT ? !d.categories.length : d.categories.includes(picker.cat));
+}
+function pickerListHtml(day, slot) {
+  const e = state.plan[day + '|' + slot];
+  const row = x => `<button class="row" data-act="choose" data-id="${x.id}"><div class="main"><div>${esc(x.name)}</div>
+    <div class="sub">${esc(x.categories.join(', ')) || '&nbsp;'}</div></div>${e && e.dish_id === x.id ? '✓' : ''}</button>`;
+  let html = '';
+  if (picker.random) {
+    const r = dishById(picker.random);
+    if (r) html += `<div class="group-title">Zufallsvorschlag</div><div class="list randomcard">${row(r)}</div>
+      <div class="actions" style="margin-top:8px"><button class="btn primary" data-act="choose" data-id="${r.id}">Übernehmen</button><button class="btn" data-act="random">🎲 Nochmal</button></div>`;
+  }
+  const q = picker.q.trim().toLowerCase();
+  let list = null, title = '';
+  if (q) { list = state.dishes.filter(d => d.name.toLowerCase().includes(q)); title = 'Suchergebnis'; }
+  else if (picker.cat !== null) { list = pickerPool(); title = picker.cat === '*' ? 'Alle Gerichte' : picker.cat; }
+  if (list) {
+    list = [...list].sort((a, b) => a.name.localeCompare(b.name, 'de'));
+    html += `<div class="group-title">${esc(title)} (${list.length})</div>` + (list.length ? `<div class="list">${list.map(row).join('')}</div>` : '<div class="empty-state" style="padding:20px">Nichts gefunden.</div>');
+  } else if (!picker.random) {
+    html += `<p class="hint">Kategorie wählen, suchen oder Zufallsgericht ziehen.</p>`;
+  }
+  return html;
+}
+function refreshPicker() {
+  const sh = dlg.querySelector('.sheet'); if (!sh) return;
+  dlg.querySelectorAll('#pick-cats .chip').forEach(c => c.classList.toggle('on', c.dataset.cat === picker.cat));
+  $('#pick-list').innerHTML = pickerListHtml(sh.dataset.day, sh.dataset.slot);
+}
 function pickerHtml(day, slot) {
   const e = state.plan[day + '|' + slot];
   const d = parseISO(day); const label = SLOTS.find(s => s[0] === slot)[1];
-  const groups = {};
-  for (const x of [...state.dishes].sort((a, b) => a.name.localeCompare(b.name, 'de')))
-    for (const c of (x.categories.length ? x.categories : ['Ohne Kategorie'])) (groups[c] ||= []).push(x);
-  const body = Object.keys(groups).sort((a, b) => a.localeCompare(b, 'de')).map(g => `<div class="group-title" data-group>${esc(g)}</div><div class="list" data-group>` +
-    groups[g].map(x => `<button class="row" data-act="choose" data-id="${x.id}" data-name="${esc(x.name.toLowerCase())}"><div class="main">${esc(x.name)}</div>${e && e.dish_id === x.id ? '✓' : ''}</button>`).join('') + `</div>`).join('');
+  picker.cat = null; picker.q = ''; picker.random = null;
+  const chips = `<button class="chip" data-act="pickcat" data-cat="*">Alle</button>` + pickerCats().map(c => `<button class="chip" data-act="pickcat" data-cat="${esc(c)}">${esc(c)}</button>`).join('');
+  const body = `<div class="catchips" id="pick-cats">${chips}</div>
+    <button class="btn full" style="margin-top:10px" data-act="random">🎲 Zufallsgericht</button>
+    <div id="pick-list">${pickerListHtml(day, slot)}</div>`;
   return `<div class="sheet" data-day="${day}" data-slot="${slot}"><div class="sheet-head"><button data-act="close">Abbrechen</button><b>${DAYNAMES[(d.getDay() + 6) % 7]} · ${label}</b><button data-act="clearslot">Leeren</button></div>
     <div class="sheet-body"><input class="search" id="pick-search" type="search" placeholder="Gericht suchen">
     ${state.dishes.length ? body : '<div class="empty-state">Noch keine Gerichte angelegt.</div>'}
@@ -385,7 +435,9 @@ const KIND_LABEL = { zutat: 'Zutat', gewuerz: 'Gewürz' };
 function ingRow(i = {}, kind = 'zutat') {
   return `<div class="ing" data-kind="${kind}"><input class="in" name="amount" inputmode="decimal" placeholder="Menge" value="${esc(i.amount ?? '')}">
     <select class="in" name="unit">${UNITS.map(u => `<option${(i.unit || '') === u ? ' selected' : ''}>${esc(u)}</option>`).join('')}</select>
-    <input class="in" name="name" list="dl-${kind}" autocomplete="off" placeholder="${KIND_LABEL[kind]}" value="${esc(i.name || '')}"><button type="button" data-act="delingr" aria-label="Entfernen">⊖</button></div>`;
+    <input class="in" name="name" list="dl-${kind}" autocomplete="off" placeholder="${KIND_LABEL[kind]}" value="${esc(i.name || '')}">
+    <button type="button" class="opt${i.optional ? ' on' : ''}" data-act="toggleopt" aria-pressed="${!!i.optional}" title="Optional">opt.</button>
+    <button type="button" data-act="delingr" aria-label="Entfernen">⊖</button></div>`;
 }
 function datalist(kind) {
   const names = [...(state.catalog?.[kind]?.values() || [])].map(e => e.name).sort((a, b) => a.localeCompare(b, 'de'));
@@ -482,6 +534,14 @@ document.addEventListener('click', async ev => {
       s.has(el.dataset.key) ? s.delete(el.dataset.key) : s.add(el.dataset.key); ls.set(k, [...s]); return render();
     }
     case 'togglecat': return el.classList.toggle('on');
+    case 'pickcat': picker.cat = picker.cat === el.dataset.cat ? null : el.dataset.cat; return refreshPicker();
+    case 'random': {
+      const pool = pickerPool(); if (!pool.length) return toast('Keine Gerichte in dieser Auswahl');
+      const others = pool.length > 1 ? pool.filter(x => x.id !== picker.random) : pool;
+      picker.random = others[Math.floor(Math.random() * others.length)].id; refreshPicker();
+      dlg.querySelector('.sheet-body').scrollTop = 0; return;
+    }
+    case 'toggleopt': { el.classList.toggle('on'); el.setAttribute('aria-pressed', el.classList.contains('on')); return; }
     case 'addcat': return addCat();
     case 'addextra': return addExtra();
     case 'copy': { const t = listText(); try { await navigator.clipboard.writeText(t); toast('Liste kopiert'); } catch { prompt('Liste kopieren:', t); } return; }
@@ -506,11 +566,7 @@ document.addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.id
 document.addEventListener('input', e => {
   if (e.target.id === 'search') { state.search = e.target.value; const pos = e.target.selectionStart; render(); const s = $('#search'); s.focus(); s.setSelectionRange(pos, pos); }
   if (e.target.id === 'set-shortcut') { settings.shortcut = e.target.value.trim() || 'Einkaufsliste'; ls.set('ep.settings', settings); }
-  if (e.target.id === 'pick-search') {
-    const q = e.target.value.trim().toLowerCase();
-    dlg.querySelectorAll('[data-act=choose]').forEach(b => b.hidden = q && !b.dataset.name.includes(q));
-    dlg.querySelectorAll('.list[data-group]').forEach(l => { const any = [...l.children].some(c => !c.hidden); l.hidden = !any; l.previousElementSibling.hidden = !any; });
-  }
+  if (e.target.id === 'pick-search') { picker.q = e.target.value; refreshPicker(); }
 });
 
 // Checkbox "Rezept selbst erfasst" & Einheit aus gespeicherter Zutat übernehmen
@@ -529,6 +585,7 @@ document.addEventListener('submit', async e => {
   const f = e.target;
   const rows = kind => [...f.querySelectorAll(`.ing[data-kind=${kind}]`)].map(r => ({
     amount: r.querySelector('[name=amount]').value.trim(), unit: r.querySelector('[name=unit]').value, name: r.querySelector('[name=name]').value.trim(),
+    optional: r.querySelector('.opt').classList.contains('on'),
   })).filter(i => i.name);
   const ingredients = rows('zutat'), spices = rows('gewuerz');
   const cats = [...f.querySelectorAll('#catchips .chip.on')].map(c => c.dataset.cat);
