@@ -455,6 +455,7 @@ function pickerCats() {
   return cats;
 }
 function randomLabel() {
+  if (picker.cat === null && picker.need?.kind === 'side' && picker.matches?.length) return '🎲 Zufällig aus passenden Grundrezepten';
   return picker.cat && picker.cat !== '*' ? `🎲 Zufällig aus „${esc(picker.cat)}“` : '🎲 Zufallsgericht';
 }
 // Zufall ohne Kategorie: keine reinen Ergänzungen (Soßen, Beilagen …), außer beim Ergänzen
@@ -474,8 +475,14 @@ function afterChoose(day, slot, fromDetail) {
   if (missingNeed(state.plan[day + '|' + slot])) return openSheet(pickerHtml(day, slot, true));
   return fromDetail ? openSheet(slotDetailHtml(day, slot)) : closeSheet();
 }
+// Grundrezepte, die zu den gewählten Ergänzungen passen (z. B. Nudeln „braucht Soße“ ↔ Tomatensoße „Soße“)
+function matchingBases(e) {
+  const cats = new Set(entryDishes(e).filter(x => x.role === 'side').flatMap(x => x.categories));
+  return state.dishes.filter(d => d.role === 'base' && d.needs.some(n => cats.has(n)));
+}
 function randomPool() {
   const pool = pickerPool();
+  if (picker.cat === null && picker.need?.kind === 'side' && picker.matches?.length) return picker.matches;
   if ((picker.cat === null || picker.cat === '*') && (!picker.add || picker.need?.kind === 'side')) return pool.filter(d => d.role !== 'side');
   return pool;
 }
@@ -497,6 +504,7 @@ function pickerListHtml(day, slot) {
   let list = null, title = '';
   if (q) { list = state.dishes.filter(d => d.name.toLowerCase().includes(q)); title = 'Suchergebnis'; }
   else if (picker.cat !== null) { list = pickerPool(); title = picker.cat === '*' ? 'Alle Gerichte' : picker.cat; }
+  else if (picker.matches?.length) { list = picker.matches; title = `Passt zu ${entryDishes(e).filter(x => x.role === 'side').map(x => x.name).join(' + ')}`; }
   if (list) {
     list = [...list].sort((a, b) => a.name.localeCompare(b.name, 'de'));
     html += `<div class="group-title">${esc(title)} (${list.length})</div>` + (list.length ? `<div class="list">${list.map(row).join('')}</div>` : '<div class="empty-state" style="padding:20px">Nichts gefunden.</div>');
@@ -572,6 +580,7 @@ function pickerHtml(day, slot, add = false) {
   const d = parseISO(day); const label = SLOTS.find(s => s[0] === slot)[1];
   picker.cat = null; picker.q = ''; picker.random = null; picker.add = add;
   const need = add ? missingNeed(e) : null; picker.need = need;
+  picker.matches = need && need.kind === 'side' ? matchingBases(e) : null;
   const base = need && need.kind === 'base' ? need.dish : null;
   if (base) picker.cat = base.needs.find(c => pickerCats().includes(c)) || null;
   const chips = `<button class="chip" data-act="pickcat" data-cat="*">Alle</button>` + pickerCats().map(c => `<button class="chip${picker.cat === c ? ' on' : ''}" data-act="pickcat" data-cat="${esc(c)}">${esc(c)}</button>`).join('');
@@ -618,8 +627,8 @@ function dishFormHtml(d) {
       <label class="f">Kategorien (mehrere möglich)</label><div id="catchips">${groups.map(([g, cs]) => `<div class="catgroup" data-group="${esc(g)}"${cs.length ? '' : ' hidden'}><div class="catlabel">${esc(g)}</div><div class="catchips">${cs.map(c => catChip(c, d.categories.includes(c))).join('')}</div></div>`).join('')}</div>
       <div class="addrow" style="margin-top:8px"><input class="in" id="newcat" placeholder="Neue Kategorie"><button type="button" class="btn" data-act="addcat">+</button></div>
       <label class="f">Art des Gerichts</label>
-      <div class="seg">${[['main', 'Ganzes Gericht'], ['base', 'Braucht Ergänzung'], ['side', 'Ergänzung']].map(([r, t]) => `<button type="button" class="${d.role === r ? 'on' : ''}" data-act="setrole" data-role="${r}">${t}</button>`).join('')}</div>
-      <p class="hint" style="margin-top:6px">„Braucht Ergänzung“ z. B. selbstgemachte Nudeln → beim Planen wird direkt nach Soße o. Ä. gefragt. „Ergänzung“ = Soße, Beilage, Salat – wird beim allgemeinen Zufall nicht gezogen.</p>
+      <div class="seg">${[['main', 'Ganzes Gericht'], ['base', 'Grundrezept'], ['side', 'Ergänzung']].map(([r, t]) => `<button type="button" class="${d.role === r ? 'on' : ''}" data-act="setrole" data-role="${r}">${t}</button>`).join('')}</div>
+      <p class="hint" style="margin-top:6px">„Grundrezept“ = braucht eine Ergänzung, z. B. selbstgemachte Nudeln → beim Planen wird nach Soße o. Ä. gefragt. „Ergänzung“ = Soße, Beilage, Salat → beim Planen werden passende Grundrezepte vorgeschlagen; beim allgemeinen Zufall nicht gezogen.</p>
       <div id="needs-box"${d.role === 'base' ? '' : ' hidden'}><label class="f">Was gehört dazu?</label>
         <div class="catchips" id="needschips">${[...new Set(['Soße', 'Beilagen', 'Salat', ...DEFAULT_CATS, ...categories()])].map(c => `<button type="button" class="chip${d.needs.includes(c) ? ' on' : ''}" data-act="togglecat" data-need="${esc(c)}">${esc(c)}</button>`).join('')}</div></div>
       <label class="f">Zutaten</label><div id="ings-zutat">${ings.map(i => ingRow(i, 'zutat')).join('')}</div>
@@ -710,7 +719,7 @@ function csvTemplate() {
   const rows = [CSV_HEAD,
     ['Spaghetti Bolognese', 'Pasta, Fleisch, Italienisch', '500 g Hackfleisch | 400 g Spaghetti | 1 Dose Tomaten | 1 Stk Zwiebel | 50 g Parmesan (optional)', '1 TL Oregano | 1 Prise Salz | Pfeffer', 'Kochbuch Oma', '45', '', 'nein', 'Gericht', '', ''],
     ['Gemüsesuppe', 'Suppe, Vegetarisch, Schnell', '1 kg Suppengemüse | 1 l Gemüsebrühe | 2 Stk Kartoffeln', 'Salz | Pfeffer | 1 Bund Petersilie (optional)', '', '', '', 'ja', 'Gericht', '', '1. Gemüse und Kartoffeln schälen und würfeln.\n2. In der Brühe ca. 20 Min. köcheln lassen.\n3. Mit Salz, Pfeffer und Petersilie abschmecken.'],
-    ['Selbstgemachte Nudeln', 'Pasta, Vegetarisch', '500 g Mehl | 5 Stk Eier', 'Salz', '', '', '', 'ja', 'Braucht Ergänzung', 'Soße', ''],
+    ['Selbstgemachte Nudeln', 'Pasta, Vegetarisch', '500 g Mehl | 5 Stk Eier', 'Salz', '', '', '', 'ja', 'Grundrezept', 'Soße', ''],
     ['Tomatensoße', 'Soße, Vegetarisch', '2 Dose Tomaten | 1 Stk Zwiebel', '1 TL Oregano | Salz', '', '', '', 'ja', 'Ergänzung', '', ''],
   ];
   return '\ufeff' + rows.map(r => r.map(c => /[;"\n]/.test(c) ? '"' + c.replace(/"/g, '""') + '"' : c).join(';')).join('\r\n') + '\r\n';
@@ -763,7 +772,7 @@ async function doCsvImport(file) {
     const self = /^(ja|j|x|yes|1|wahr|true)$/i.test(get(r, 'Selbst erfasst'));
     const cats = [...new Set(get(r, 'Kategorien').split(/\s*[,|]\s*/).filter(Boolean))];
     const typ = get(r, 'Typ').toLowerCase();
-    const role = /braucht|basis|base/.test(typ) ? 'base' : /ergänz|beilage|soße|sosse|side/.test(typ) ? 'side' : 'main';
+    const role = /braucht|basis|base|grund/.test(typ) ? 'base' : /ergänz|beilage|soße|sosse|side/.test(typ) ? 'side' : 'main';
     const needs = role === 'base' ? [...new Set(get(r, 'Braucht').split(/\s*[,|]\s*/).filter(Boolean))] : [];
     dishes.push(normDish({ id: uid(), name, categories: cats, category: cats[0] || '', role, needs, instructions: get(r, 'Zubereitung'),
       ingredients: parseIngredients(get(r, 'Zutaten')), spices: parseIngredients(get(r, 'Gewürze')), recipe_self: self,
