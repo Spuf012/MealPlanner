@@ -164,6 +164,8 @@ const CONFIG = {
 };
 // ─────────────────────────────────────────────────────────────
 
+// Test-Funktion „Alle Gerichte löschen“ in den Einstellungen – später auf false setzen
+const SHOW_DELETE_ALL = true;
 const SLOTS = [['mittag', 'Mittag'], ['abend', 'Abend']];
 const UNITS = ['', 'g', 'kg', 'ml', 'l', 'Stk', 'EL', 'TL', 'Prise', 'Pck', 'Dose', 'Bund', 'Zehe', 'Scheibe'];
 const CAT_GROUPS = [
@@ -210,6 +212,7 @@ const LocalStore = {
   async saveDishes(arr) { const all = ls.get('ep.dishes', []); const m = new Map(all.map(d => [d.id, d])); for (const d of arr) m.set(d.id, d); ls.set('ep.dishes', [...m.values()]); },
   async savePlan(arr) { const p = ls.get('ep.plan', {}); for (const e of arr) p[e.day + '|' + e.slot] = e; ls.set('ep.plan', p); },
   async deleteAll() { for (const k of ['ep.dishes', 'ep.plan', 'ep.catalog']) localStorage.removeItem(k); },
+  async deleteDishesAndPlan() { for (const k of ['ep.dishes', 'ep.plan']) localStorage.removeItem(k); },
 };
 
 const SupaStore = {
@@ -238,6 +241,11 @@ const SupaStore = {
   async saveCatalog(entries) { if (!entries.length) return; const { error } = await this.sb.from('catalog').upsert(entries); if (error) throw error; },
   async saveDishes(arr) { for (let i = 0; i < arr.length; i += 200) { const { error } = await this.sb.from('dishes').upsert(arr.slice(i, i + 200)); if (error) throw error; } },
   async savePlan(arr) { for (let i = 0; i < arr.length; i += 500) { const { error } = await this.sb.from('plan').upsert(arr.slice(i, i + 500)); if (error) throw error; } },
+  async deleteDishesAndPlan() {
+    for (const [t, q] of [['plan', x => x.gte('day', '1900-01-01')], ['dishes', x => x.not('id', 'is', null)]]) {
+      const { error } = await q(this.sb.from(t).delete()); if (error) throw error;
+    }
+  },
   async deleteAll() {
     for (const [t, q] of [['plan', x => x.gte('day', '1900-01-01')], ['dishes', x => x.not('id', 'is', null)], ['catalog', x => x.neq('kind', '')]]) {
       const { error } = await q(this.sb.from(t).delete()); if (error) throw error;
@@ -628,6 +636,9 @@ function settingsHtml() {
     <div class="actions" style="margin-top:6px"><button class="btn" data-act="csvtemplate">Vorlage laden</button><button class="btn" data-act="csvimport">CSV einlesen</button></div>
     <input type="file" id="file-backup" accept=".json,application/json" hidden>
     <input type="file" id="file-csv" accept=".csv,text/csv,text/plain" hidden>
+    ${SHOW_DELETE_ALL ? `<div class="group-title">Testen</div>
+    <button class="btn danger full" style="border:1px solid var(--danger)" data-act="deleteall">Alle Gerichte löschen (${state.dishes.length})</button>
+    <p class="hint">Löscht alle Gerichte und Wochenpläne für alle Familienmitglieder. Zutaten-Vorschläge bleiben. Vorher am besten eine Sicherung speichern.</p>` : ''}
     ${store.mode === 'cloud' ? '<button class="btn danger full" style="margin-top:18px" data-act="logout">Abmelden</button>' : ''}
   </div></div>`;
 }
@@ -838,6 +849,17 @@ document.addEventListener('click', async ev => {
       s.has(el.dataset.key) ? s.delete(el.dataset.key) : s.add(el.dataset.key); ls.set(k, [...s]); return render();
     }
     case 'backup': return guard(doBackup);
+    case 'deleteall': {
+      if (!SHOW_DELETE_ALL) return;
+      const n = state.dishes.length;
+      const answer = prompt(`Wirklich alle ${n} Gerichte und alle Wochenpläne löschen? Das lässt sich nicht rückgängig machen.\n\nZum Bestätigen LÖSCHEN eintippen:`);
+      if ((answer || '').trim().toUpperCase() !== 'LÖSCHEN') return toast('Abgebrochen – nichts gelöscht');
+      await guard(async () => {
+        await store.deleteDishesAndPlan(); await loadDishes(); await loadPlan();
+        closeSheet(); render(); toast(`${n} Gerichte gelöscht`);
+      });
+      return;
+    }
     case 'restore': return $('#file-backup').click();
     case 'csvtemplate': return download('Essensplaner-Vorlage.csv', csvTemplate(), 'text/csv;charset=utf-8');
     case 'csvimport': return $('#file-csv').click();
