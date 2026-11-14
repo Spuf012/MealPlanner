@@ -166,6 +166,7 @@ const CONFIG = {
 
 // Test-Funktion „Alle Gerichte löschen“ in den Einstellungen – später auf false setzen
 const SHOW_DELETE_ALL = true;
+const APP_VERSION = '2026-11-14.3';
 const SLOTS = [['mittag', 'Mittag'], ['abend', 'Abend']];
 const UNITS = ['', 'g', 'kg', 'ml', 'l', 'Stk', 'EL', 'TL', 'Prise', 'Pck', 'Dose', 'Bund', 'Zehe', 'Scheibe'];
 const CAT_GROUPS = [
@@ -670,6 +671,7 @@ function settingsHtml() {
   return `<div class="sheet"><div class="sheet-head"><span></span><b>Einstellungen</b><button data-act="close">Fertig</button></div><div class="sheet-body">
     <label class="f">Name des Kurzbefehls für „An Erinnerungen senden“</label><input class="in" id="set-shortcut" value="${esc(settings.shortcut)}">
     <p class="hint">Der Kurzbefehl muss auf iPhone/iPad/Mac genau so heißen. Siehe Anleitung.</p>
+    <p class="hint">App-Version: <b>${APP_VERSION}</b></p>
     <p class="hint">Speichermodus: <b>${store.mode === 'cloud' ? 'Cloud (Supabase) – für die Familie geteilt' : 'Lokal (nur dieses Gerät)'}</b></p>
     <div class="group-title">Sicherung</div>
     <p class="hint" style="margin-top:0">Speichert alle Gerichte, Wochenpläne und gespeicherten Zutaten in einer Datei – z. B. in iCloud Drive ablegen.</p>
@@ -784,13 +786,18 @@ const AMOUNT_ONLY_RE = /^(ca\.\s*)?[\d.,/½¼¾⅓⅔⅛]+(\s*[-–]\s*[\d.,/½�
 // nur Menge (+ Einheit) ohne Zutat, z. B. „500 g“ oder „2“ – Zutat folgt in der nächsten Zeile
 const isAmountOnly = l => { const m = l.match(AMOUNT_ONLY_RE); if (!m) return false; const u = (m[3] || '').toLowerCase(); return !u || !!UNIT_MAP[u] || OTHER_UNITS.includes(u) || /^(stück|stk\.?)$/.test(u); };
 function parsePastedRecipe(text) {
-  const lines = String(text || '').replace(/\r/g, '').split('\n').map(l => l.replace(/[\u00a0\t]+/g, ' ').replace(/^[•·▪*\-–]\s+/, '').trim());
+  const lines = String(text || '').replace(/\r/g, '').replace(/[\u200b-\u200f\u2060\ufeff]/g, '').split('\n')
+    .map(l => l.replace(/[\u00a0\u202f\t]+/g, ' ').replace(/^[•·▪*\-–]\s+/, '').replace(/\s+/g, ' ').trim());
   const isIngHead = l => /^(zutaten|einkaufsliste|du brauchst|das brauchst du)\b[^a-zäöüß]*(für.*)?:?$/i.test(l);
   const isStepHead = l => /^(zubereitung|anleitung|so geht'?s|so wird'?s gemacht|schritte|zubereitungsschritte|arbeitsschritte|und so geht'?s)\b.*:?$/i.test(l) && l.length < 40;
   const isToolHead = l => /^(utensilien|küchenutensilien|küchengeräte|das brauchst du an utensilien|benötigte utensilien|equipment|werkzeuge?)\s*:?$/i.test(l);
   // Seitentext von Shop-/Rezeptseiten, der keine Zutat ist
   const isNoise = l => /^(zutaten online bestellen|online bestellen|alle zutaten (in den )?warenkorb.*|in den warenkorb|zum warenkorb|zur einkaufsliste( hinzufügen)?|auf die einkaufsliste|einkaufsliste|was hast du noch da\??|das hast du (bestimmt )?(noch )?(zu ?hause|da)\??|im markt verfügbar|nicht im sortiment|jetzt bestellen|lieferservice|abholservice|produkt auswählen|ersetzen|merken|drucken|teilen|bewerten|rezept speichern)$/i.test(l)
     || /^(portionen?|personen|menge|anzahl)\s*[-+]?\s*\d*\s*[-+]?$/i.test(l) || /^[-+]$/.test(l);
+  // ab hier gehört nichts mehr zum Rezept (Hinweise, Nährwerte, Empfehlungen) – bis zur nächsten Überschrift
+  const isStopHead = l => /^(wir zeigen dir.*|zum rezeptfinder|rezeptfinder|ernährwert.*|nährwert.*|weitere rezepte.*|ähnliche rezepte.*|passende rezepte.*|das könnte dir (auch )?gefallen.*|mehr rezepte.*|tipps?( (&|und) tricks)?|kommentare.*|\d* ?bewertungen.*|produkte zum rezept.*|newsletter.*)$/i.test(l);
+  // Beschriftungen von Symbolen/Knöpfen
+  const isUiLabel = l => /^(arrow[ -]?(right|left|up|down)|chevron.*|icon.*|pfeil.*|play|pause|close|schließen|menü|menu|mehr anzeigen|weniger anzeigen|alle anzeigen|zurück|weiter|info|i)$/i.test(l);
   const tools = new Set();
   // Shop-Layout (z. B. REWE): Utensilien-Liste oder Zutatenzeilen mit „•“ über den Schritten
   const shopLayout = lines.some(l => isToolHead(l) || l.includes('•'));
@@ -802,8 +809,11 @@ function parsePastedRecipe(text) {
     let l = nonEmpty[i];
     if (isIngHead(l)) { sec = 'ing'; const y = l.match(yieldRe); if (y) yld = `${y[1]} ${y[2]}`; continue; }
     if (isStepHead(l)) { sec = 'steps'; continue; }
+    if (isUiLabel(l)) continue;
+    if (isStopHead(l)) { sec = 'skip'; continue; }
     if (isToolHead(l)) { sec = 'tools'; continue; }
-    if (sec === 'tools') { if (l.length < 40 && !/[.!?]$/.test(l)) { tools.add(l.toLowerCase()); continue; } sec = 'steps'; }
+    if (sec === 'skip') continue;
+    if (sec === 'tools' && !isNoise(l)) { if (l.length < 40 && !/[.!?]$/.test(l)) { tools.add(l.toLowerCase()); continue; } sec = 'steps'; }
     if (isNoise(l)) {
       if (/^(was hast du noch da|das hast du)/i.test(l)) sec = 'ing';   // danach folgen Vorratszutaten
       // „Portionen“ gefolgt von einer reinen Zahl: Zahl ist die Portionsangabe
@@ -1241,6 +1251,17 @@ async function start() {
   }
 }
 start();
+
+// Neue Version auf GitHub? Dann automatisch neu laden (Home-Bildschirm-Apps halten sonst die alte Datei fest).
+async function checkUpdate() {
+  try {
+    const html = await (await fetch(location.pathname + '?v=' + Date.now(), { cache: 'no-store' })).text();
+    const v = (html.match(/APP_VERSION = '([^']+)'/) || [])[1];
+    if (v && v !== APP_VERSION && !dlg.open) { toast('Neue Version wird geladen …'); setTimeout(() => location.reload(), 800); }
+  } catch {}
+}
+setTimeout(checkUpdate, 2000);
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') checkUpdate(); });
 </script>
 </body>
 </html>
