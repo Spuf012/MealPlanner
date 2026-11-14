@@ -295,7 +295,9 @@ const entryDishes = e => e ? [e.dish_id, ...(e.extra_ids || [])].map(dishById).f
 async function saveEntry(e) {
   const k = e.day + '|' + e.slot;
   // fehlt das Hauptgericht, rückt das erste hinzugefügte nach
-  const ids = [e.dish_id, ...(e.extra_ids || [])].filter(id => id && dishById(id));
+  const rank = { main: 0, base: 1, side: 2 };
+  const ids = [e.dish_id, ...(e.extra_ids || [])].filter(id => id && dishById(id))
+    .map((id, i) => [id, i]).sort((x, y) => (rank[dishById(x[0]).role] - rank[dishById(y[0]).role]) || x[1] - y[1]).map(x => x[0]);
   e.dish_id = ids[0] || null; e.extra_ids = [...new Set(ids.slice(1))];
   e.extra_texts = (e.extra_texts || []).filter(Boolean);
   if (!e.dish_id) { e.leftover = false; e.extra_ids = []; e.extra_texts = []; }
@@ -453,9 +455,25 @@ function randomLabel() {
   return picker.cat && picker.cat !== '*' ? `🎲 Zufällig aus „${esc(picker.cat)}“` : '🎲 Zufallsgericht';
 }
 // Zufall ohne Kategorie: keine reinen Ergänzungen (Soßen, Beilagen …), außer beim Ergänzen
+// Fehlt in einer Mahlzeit noch etwas? (Gericht, das eine Ergänzung braucht, oder nur Ergänzungen)
+function missingNeed(e) {
+  const ds = entryDishes(e); const hasText = ((e && e.extra_texts) || []).length > 0;
+  if (!ds.length || hasText) return null;
+  for (const b of ds.filter(x => x.role === 'base' && x.needs.length)) {
+    if (!ds.some(o => o !== b && o.categories.some(c => b.needs.includes(c)))) return { kind: 'base', dish: b };
+  }
+  if (ds.every(x => x.role === 'side')) return { kind: 'side', dish: ds[0] };
+  return null;
+}
+// nach dem Wählen: fehlt noch etwas -> weiter fragen, sonst Detail bzw. schließen
+function afterChoose(day, slot, fromDetail) {
+  render();
+  if (missingNeed(state.plan[day + '|' + slot])) return openSheet(pickerHtml(day, slot, true));
+  return fromDetail ? openSheet(slotDetailHtml(day, slot)) : closeSheet();
+}
 function randomPool() {
   const pool = pickerPool();
-  if ((picker.cat === null || picker.cat === '*') && !picker.add) return pool.filter(d => d.role !== 'side');
+  if ((picker.cat === null || picker.cat === '*') && (!picker.add || picker.need?.kind === 'side')) return pool.filter(d => d.role !== 'side');
   return pool;
 }
 function pickerPool() {
@@ -550,7 +568,8 @@ function pickerHtml(day, slot, add = false) {
   const e = state.plan[day + '|' + slot];
   const d = parseISO(day); const label = SLOTS.find(s => s[0] === slot)[1];
   picker.cat = null; picker.q = ''; picker.random = null; picker.add = add;
-  const base = add ? entryDishes(e).find(x => x.role === 'base' && x.needs.length) : null;
+  const need = add ? missingNeed(e) : null; picker.need = need;
+  const base = need && need.kind === 'base' ? need.dish : null;
   if (base) picker.cat = base.needs.find(c => pickerCats().includes(c)) || null;
   const chips = `<button class="chip" data-act="pickcat" data-cat="*">Alle</button>` + pickerCats().map(c => `<button class="chip${picker.cat === c ? ' on' : ''}" data-act="pickcat" data-cat="${esc(c)}">${esc(c)}</button>`).join('');
   const sugg = add ? '' : availableLeftovers(day, slot).map(prev => `<button class="leftover-sugg" data-act="chooseleftover" data-id="${prev.dish.id}" data-src="${prev.src}"><span>🍱</span><span><b>Reste von ${esc(prev.label)}</b><br>${esc(prev.names)}</span></button>`).join('');
@@ -559,11 +578,11 @@ function pickerHtml(day, slot, add = false) {
     <div id="pick-list">${pickerListHtml(day, slot)}</div>`;
   const names = entryDishes(e).map(x => x.name).join(' + ');
   return `<div class="sheet" data-day="${day}" data-slot="${slot}"${add ? ' data-add="1"' : ''}><div class="sheet-head"><button data-act="${add ? 'backtodetail' : 'close'}">${add ? 'Zurück' : 'Abbrechen'}</button><b>${add ? 'Gericht hinzufügen' : `${DAYNAMES[(d.getDay() + 6) % 7]} · ${label}`}</b>${add ? '<span style="width:60px"></span>' : '<button data-act="clearslot">Leeren</button>'}</div>
-    <div class="sheet-body">${add ? `<p class="hint" style="margin-top:0">${base ? `Was gibt's zu <b>${esc(names)}</b>?${base.needs.length ? ` (braucht: ${esc(base.needs.join(', '))})` : ''}` : `Zu <b>${esc(names)}</b> hinzufügen:`}</p>` : ''}<input class="search" id="pick-search" type="search" placeholder="Gericht suchen">
+    <div class="sheet-body">${add ? `<p class="hint" style="margin-top:0">${base ? `Was gibt's zu <b>${esc(base.name)}</b>? (braucht: ${esc(base.needs.join(', '))})` : need ? `Wozu gibt's <b>${esc(names)}</b>?` : `Zu <b>${esc(names)}</b> hinzufügen:`}</p>` : ''}<input class="search" id="pick-search" type="search" placeholder="Gericht suchen">
     ${state.dishes.length ? body : '<div class="empty-state">Noch keine Gerichte angelegt.</div>'}
     ${add ? `<label class="f">Oder Freitext (z. B. Pesto aus dem Glas)</label>
     <div class="addrow" style="margin-top:0"><input class="in" id="pick-text" placeholder="Freitext"><button class="btn" data-act="addtext">OK</button></div>
-    ${base ? '<button class="btn full" style="margin-top:10px" data-act="backtodetail">Ohne Ergänzung fertig</button>' : ''}` : `<label class="f">Bemerkung oder Freitext (z. B. Reste, doppelte Portion)</label>
+    ${need ? `<button class="btn full" style="margin-top:10px" data-act="backtodetail">${base ? 'Ohne Ergänzung fertig' : 'Nichts weiter dazu'}</button>` : ''}` : `<label class="f">Bemerkung oder Freitext (z. B. Reste, doppelte Portion)</label>
     <div class="addrow" style="margin-top:0"><input class="in" id="pick-note" value="${esc(e && !e.dish_id ? e.note : '')}" placeholder="Freitext"><button class="btn" data-act="savenote">OK</button></div>`}
     <button class="btn full" style="margin-top:14px" data-act="newdish-from-pick">+ Neues Gericht anlegen</button></div></div>`;
 }
@@ -809,7 +828,7 @@ document.addEventListener('click', async ev => {
       const sh = el.closest('.sheet'); const { day, slot } = sh.dataset;
       if (sh.dataset.add && act === 'choose') {
         const e = { ...state.plan[day + '|' + slot] }; e.extra_ids = [...(e.extra_ids || []), el.dataset.id];
-        await saveEntry(e); render(); return openSheet(slotDetailHtml(day, slot));
+        await saveEntry(e); return afterChoose(day, slot, true);
       }
       const dish_id = (act === 'choose' || act === 'chooseleftover') ? el.dataset.id : null;
       const note = act === 'clearslot' ? '' : $('#pick-note').value.trim();
@@ -819,8 +838,7 @@ document.addEventListener('click', async ev => {
       const extra_texts = srcE ? [...(srcE.extra_texts || [])] : [];
       await saveEntry({ day, slot, dish_id, note, leftover, extra_ids, extra_texts });
       // braucht das Gericht eine Ergänzung (z. B. Soße)? -> direkt weiter zur Auswahl
-      const chosen = dishById(dish_id);
-      if (act === 'choose' && chosen && chosen.role === 'base') { render(); return openSheet(pickerHtml(day, slot, true)); }
+      if (act === 'choose') return afterChoose(day, slot, false);
       closeSheet(); return render();
     }
     case 'newdish': return openSheet(dishFormHtml());
@@ -952,8 +970,8 @@ document.addEventListener('submit', async e => {
   const addmode = dlg.dataset.addmode; delete dlg.dataset.addmode;
   if (after) {
     const [day, slot] = after.split('|'); const cur = state.plan[after];
-    if (addmode && cur) { await saveEntry({ ...cur, extra_ids: [...(cur.extra_ids || []), d.id] }); closeSheet(); render(); return openSheet(slotDetailHtml(day, slot)); }
-    await saveEntry({ day, slot, dish_id: d.id, note: cur?.note || '' });
+    if (addmode && cur) { await saveEntry({ ...cur, extra_ids: [...(cur.extra_ids || []), d.id] }); toast('Gespeichert'); return afterChoose(day, slot, true); }
+    await saveEntry({ day, slot, dish_id: d.id, note: cur?.note || '' }); toast('Gespeichert'); return afterChoose(day, slot, false);
   }
   closeSheet(); toast('Gespeichert'); render();
 });
