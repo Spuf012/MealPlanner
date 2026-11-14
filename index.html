@@ -638,7 +638,7 @@ function settingsHtml() {
     <input type="file" id="file-csv" accept=".csv,text/csv,text/plain" hidden>
     ${SHOW_DELETE_ALL ? `<div class="group-title">Testen</div>
     <button class="btn danger full" style="border:1px solid var(--danger)" data-act="deleteall">Alle Gerichte löschen (${state.dishes.length})</button>
-    <p class="hint">Löscht alle Gerichte und Wochenpläne für alle Familienmitglieder. Zutaten-Vorschläge bleiben. Vorher am besten eine Sicherung speichern.</p>` : ''}
+    <p class="hint">Löscht alle Gerichte, Wochenpläne und gespeicherten Zutaten/Gewürze für alle Familienmitglieder. Vorher am besten eine Sicherung speichern.</p>` : ''}
     ${store.mode === 'cloud' ? '<button class="btn danger full" style="margin-top:18px" data-act="logout">Abmelden</button>' : ''}
   </div></div>`;
 }
@@ -852,10 +852,10 @@ document.addEventListener('click', async ev => {
     case 'deleteall': {
       if (!SHOW_DELETE_ALL) return;
       const n = state.dishes.length;
-      const answer = prompt(`Wirklich alle ${n} Gerichte und alle Wochenpläne löschen? Das lässt sich nicht rückgängig machen.\n\nZum Bestätigen LÖSCHEN eintippen:`);
+      const answer = prompt(`Wirklich alle ${n} Gerichte, alle Wochenpläne und alle gespeicherten Zutaten löschen? Das lässt sich nicht rückgängig machen.\n\nZum Bestätigen LÖSCHEN eintippen:`);
       if ((answer || '').trim().toUpperCase() !== 'LÖSCHEN') return toast('Abgebrochen – nichts gelöscht');
       await guard(async () => {
-        await store.deleteDishesAndPlan(); await loadDishes(); await loadPlan();
+        await store.deleteAll(); await loadDishes(); await loadPlan();
         closeSheet(); render(); toast(`${n} Gerichte gelöscht`);
       });
       return;
