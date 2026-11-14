@@ -166,7 +166,7 @@ const CONFIG = {
 
 // Test-Funktion „Alle Gerichte löschen“ in den Einstellungen – später auf false setzen
 const SHOW_DELETE_ALL = true;
-const APP_VERSION = '2026-11-14.4';
+const APP_VERSION = '2026-11-14.5';
 const SLOTS = [['mittag', 'Mittag'], ['abend', 'Abend']];
 const UNITS = ['', 'g', 'kg', 'ml', 'l', 'Stk', 'EL', 'TL', 'Prise', 'Pck', 'Dose', 'Bund', 'Zehe', 'Scheibe'];
 const CAT_GROUPS = [
@@ -366,7 +366,7 @@ function viewDishes() {
     .sort((a, b) => a.name.localeCompare(b.name, 'de'));
   let html = `<div class="wrap"><header class="top"><h1>Gerichte</h1><div style="display:flex;gap:8px"><button class="iconbtn" data-act="importlink" aria-label="Aus Link importieren">🔗 Import</button><button class="iconbtn primary" data-act="newdish">+ Neu</button></div></header>
     <input class="search" id="search" type="search" placeholder="Suchen (Name oder Zutat)" value="${esc(state.search)}">`;
-  if (cats.length) html += `<div class="chips"><button class="chip${!state.cat ? ' on' : ''}" data-act="cat" data-cat="">Alle</button>${cats.map(c => `<button class="chip${state.cat === c ? ' on' : ''}" data-act="cat" data-cat="${esc(c)}">${esc(c)}</button>`).join('')}</div>`;
+  if (cats.length) html += `<div class="chips"><button class="chip${!state.cat ? ' on' : ''}" data-act="cat" data-cat="">Alle</button>${groupedCats(cats).flatMap(([, cs]) => cs).map(c => `<button class="chip${state.cat === c ? ' on' : ''}" data-act="cat" data-cat="${esc(c)}">${esc(c)}</button>`).join('')}</div>`;
   if (!state.dishes.length) return html + `<div class="empty-state">Noch keine Gerichte.<br>Tippe auf „+ Neu“.</div></div>`;
   if (!list.length) return html + `<div class="empty-state">Nichts gefunden.</div></div>`;
   html += `<div class="list">` + list.map(d => `<button class="row" data-act="editdish" data-id="${d.id}"><div class="main"><div>${esc(d.name)}</div>
@@ -460,6 +460,15 @@ dlg.addEventListener('cancel', e => { if (sheetLocked()) { e.preventDefault(); t
 
 const picker = { cat: null, q: '', random: null };
 const NOCAT = 'Ohne Kategorie';
+// vorhandene Kategorien in derselben Gruppierung/Reihenfolge wie im Gericht-Formular
+function groupedCats(available) {
+  const av = new Set(available);
+  const groups = CAT_GROUPS.map(([g, cs]) => [g, cs.filter(c => av.has(c))]);
+  const own = [...av].filter(c => !DEFAULT_CATS.includes(c) && c !== NOCAT).sort((a, b) => a.localeCompare(b, 'de'));
+  groups.push(['Eigene', own]);
+  if (av.has(NOCAT)) groups.push(['Sonstiges', [NOCAT]]);
+  return groups.filter(([, cs]) => cs.length);
+}
 function pickerCats() {
   const cats = categories();
   if (state.dishes.some(d => !d.categories.length)) cats.push(NOCAT);
@@ -594,9 +603,11 @@ function pickerHtml(day, slot, add = false) {
   picker.matches = need && need.kind === 'side' ? matchingBases(e) : null;
   const base = need && need.kind === 'base' ? need.dish : null;
   if (base) picker.cat = base.needs.find(c => pickerCats().includes(c)) || null;
-  const chips = `<button class="chip" data-act="pickcat" data-cat="*">Alle</button>` + pickerCats().map(c => `<button class="chip${picker.cat === c ? ' on' : ''}" data-act="pickcat" data-cat="${esc(c)}">${esc(c)}</button>`).join('');
+  const chip = c => `<button class="chip${picker.cat === c ? ' on' : ''}" data-act="pickcat" data-cat="${esc(c)}">${esc(c)}</button>`;
+  const chips = `<div class="catchips"><button class="chip${picker.cat === '*' ? ' on' : ''}" data-act="pickcat" data-cat="*">Alle</button></div>`
+    + groupedCats(pickerCats()).map(([g, cs]) => `<div class="catgroup"><div class="catlabel">${esc(g)}</div><div class="catchips">${cs.map(chip).join('')}</div></div>`).join('');
   const sugg = add ? '' : availableLeftovers(day, slot).map(prev => `<button class="leftover-sugg" data-act="chooseleftover" data-id="${prev.dish.id}" data-src="${prev.src}"><span>🍱</span><span><b>Reste von ${esc(prev.label)}</b><br>${esc(prev.names)}</span></button>`).join('');
-  const body = `${sugg}<div class="catchips" id="pick-cats">${chips}</div>
+  const body = `${sugg}<div id="pick-cats">${chips}</div>
     <button class="btn full" style="margin-top:10px" data-act="random" id="randombtn">${randomLabel()}</button>
     <div id="pick-list">${pickerListHtml(day, slot)}</div>`;
   const names = entryDishes(e).map(x => x.name).join(' + ');
