@@ -701,7 +701,7 @@ const PANTRY_RE = /^(salz|meersalz|pfeffer|.*pfeffer$|.*salz$|.*öl$|öl|.*essig
 const WATER_RE = /^(wasser|warmes wasser|kaltes wasser|heißes wasser|lauwarmes wasser|leitungswasser)$/i;
 
 // Handelsmarken am Anfang des Zutatennamens („REWE Beste Wahl Toastbrot“ → „Toastbrot“)
-const BRAND_RE = /^\s*(rewe\s+beste\s+wahl|rewe\s+bio|rewe\s+feine\s+welt|rewe\s+regional|rewe\s+frei\s+von|rewe|ja!|gut\s*&\s*günstig|k-classic|milbona|edeka)\s+/i;
+const BRAND_RE = /^\s*(rewe\s+beste\s+wahl|rewe\s+bio|rewe\s+feine\s+welt|rewe\s+regional|rewe\s+frei\s+von|rewe|ja!|gut\s*&\s*günstig|k-classic|milbona|edeka|bio)\s+/i;
 function numFromText(t) {
   const fr = { '½': '.5', '¼': '.25', '¾': '.75', '⅓': '.33', '⅔': '.67', '⅛': '.125' };
   t = t.replace(/(\d)?\s*([½¼¾⅓⅔⅛])/g, (_, d, f) => (d || '0') + fr[f]);
@@ -735,7 +735,7 @@ function parseRecipeLine(line) {
   // „500g“ zusammengeschrieben
   const g = amount === '' && t.match(/^(\d+(?:[.,]\d+)?)(g|kg|ml|l)\s+(.*)$/i);
   if (g) { amount = g[1].replace('.', ','); unit = UNIT_MAP[g[2].toLowerCase()]; name = g[3]; }
-  name = name.replace(/\(n\)|\(s\)|\(e\)|\(en\)|\(er\)/g, '').replace(/\s*,.*$/, '').replace(BRAND_RE, '').replace(/\s+/g, ' ').trim();
+  name = name.replace(/\(n\)|\(s\)|\(e\)|\(en\)|\(er\)/g, '').replace(/\s*,.*$/, '').replace(BRAND_RE, '').replace(BRAND_RE, '').replace(/\s+/g, ' ').trim();
   return { amount, unit, name, optional };
 }
 function recipeToDish(r) {
