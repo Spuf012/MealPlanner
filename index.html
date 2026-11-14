@@ -104,7 +104,7 @@
   .sheet-body { overflow-y: auto; padding: 14px 16px calc(20px + env(safe-area-inset-bottom)); }
   label.f { display: block; font-size: 13px; color: var(--muted); margin: 12px 4px 6px; }
   .in { width: 100%; padding: 11px 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--card); }
-  .ing { display: grid; grid-template-columns: 62px 74px 1fr 40px 28px; gap: 5px; margin-bottom: 6px; align-items: center; }
+  .ing { display: grid; grid-template-columns: 56px 92px 1fr 40px 28px; gap: 5px; margin-bottom: 6px; align-items: center; }
   .ing .opt { border: 1px solid var(--line); background: var(--card); color: var(--muted); border-radius: 8px; height: 38px; font-size: 12px; font-weight: 600; padding: 0; }
   .ing .opt.on { background: var(--accent-soft); color: var(--accent); border-color: var(--accent); }
   .leftover { font-size: 12px; font-weight: 700; color: var(--accent); background: var(--accent-soft); padding: 1px 7px; border-radius: 999px; margin-right: 4px; vertical-align: 1px; }
@@ -166,7 +166,7 @@ const CONFIG = {
 
 // Test-Funktion „Alle Gerichte löschen“ in den Einstellungen – später auf false setzen
 const SHOW_DELETE_ALL = true;
-const APP_VERSION = '2026-11-14.3';
+const APP_VERSION = '2026-11-14.4';
 const SLOTS = [['mittag', 'Mittag'], ['abend', 'Abend']];
 const UNITS = ['', 'g', 'kg', 'ml', 'l', 'Stk', 'EL', 'TL', 'Prise', 'Pck', 'Dose', 'Bund', 'Zehe', 'Scheibe'];
 const CAT_GROUPS = [
@@ -799,6 +799,8 @@ function parsePastedRecipe(text) {
   // Beschriftungen von Symbolen/Knöpfen
   const isUiLabel = l => /^(arrow[ -]?(right|left|up|down)|chevron.*|icon.*|pfeil.*|play|pause|close|schließen|menü|menu|mehr anzeigen|weniger anzeigen|alle anzeigen|zurück|weiter|info|i)$/i.test(l);
   const tools = new Set();
+  const ingKeys = new Set();   // Zutatenzeilen (komplett und ohne Menge), um Wiederholungen in den Schritten zu erkennen
+  const addIngKey = x => { const k = x.toLowerCase().trim(); ingKeys.add(k); ingKeys.add(k.replace(/^[\d.,/½¼¾⅓⅔⅛]+\s*/, '')); };
   // Shop-Layout (z. B. REWE): Utensilien-Liste oder Zutatenzeilen mit „•“ über den Schritten
   const shopLayout = lines.some(l => isToolHead(l) || l.includes('•'));
   const yieldRe = /(\d+)\s*(portionen|portion|personen|stück|stk\.?)\b/i;
@@ -831,8 +833,8 @@ function parsePastedRecipe(text) {
         if (/:$/.test(l) && l.length < 40) continue;                 // Zwischenüberschrift „Für den Teig:“
         if (/^(portionen?|personen|menge|anzahl)$/i.test(l)) continue;
         if (isAmountOnly(l) && nonEmpty[i + 1] && !isStepHead(nonEmpty[i + 1]) && !isNoise(nonEmpty[i + 1]) && !isToolHead(nonEmpty[i + 1])) { l = l + ' ' + nonEmpty[++i]; }  // „500 g“ / „Nudeln“ in zwei Zeilen
-        if (l.includes('•')) { l.split(/\s*•\s*/).filter(Boolean).forEach(x => ing.push(x)); continue; }
-        ing.push(l); continue;
+        if (l.includes('•')) { l.split(/\s*•\s*/).filter(Boolean).forEach(x => { ing.push(x); addIngKey(x); }); continue; }
+        ing.push(l); addIngKey(l); continue;
       }
     }
     if (sec === 'steps') {
@@ -842,6 +844,15 @@ function parsePastedRecipe(text) {
       if (/^(utensilien|zutaten)\s*:/i.test(l)) continue;
       // kurze Zeile ohne Satzzeichen und ohne Verb-Anschein = Utensil/Überschrift, kein Arbeitsschritt
       if (shopLayout && l.split(' ').length <= 3 && l.length < 30 && !/[.!?:]/.test(l) && !/\d/.test(l)) continue;
+      // Zutat, die schon in der Zutatenliste steht („100 g Mayonnaise“, „Salz“)
+      const key = l.toLowerCase();
+      if (ingKeys.has(key) || ingKeys.has(key.replace(/^[\d.,/½¼¾⅓⅔⅛]+\s*/, ''))) continue;
+      if (shopLayout && !/[.!?]/.test(l) && l.length < 60) {
+        // Zutatenzeile über dem Schritt: beginnt mit Menge, kein Satz („0,5 Bio Orange“, „2 REWE Beste Wahl Chef-Tomaten“)
+        if (/^[\d½¼¾⅓⅔⅛]/.test(l)) continue;
+        // Utensilien als Kommaliste („Zestenreibe, Bratenthermometer, Holzspieße“)
+        if (l.includes(',') && l.split(',').every(x => x.trim().split(' ').length <= 3)) { l.split(',').forEach(x => tools.add(x.trim().toLowerCase())); continue; }
+      }
       const st = l.replace(/^(schritt\s*)?\d+[.):]\s*/i, '').trim();
       if (st) steps.push(st);
     }
