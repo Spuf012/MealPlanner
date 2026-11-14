@@ -1,3 +1,7 @@
-﻿Name;Kategorien;Zutaten;Gewürze;Rezeptbuch;Seite;Rezept-Link;Selbst erfasst
-Spaghetti Bolognese;Pasta, Fleisch, Italienisch;500 g Hackfleisch | 400 g Spaghetti | 1 Dose Tomaten | 1 Stk Zwiebel | 50 g Parmesan (optional);1 TL Oregano | 1 Prise Salz | Pfeffer;Kochbuch Oma;45;;nein
-Gemüsesuppe;Suppe, Vegetarisch, Schnell;1 kg Suppengemüse | 1 l Gemüsebrühe | 2 Stk Kartoffeln;Salz | Pfeffer | 1 Bund Petersilie (optional);;;;ja
+﻿Name;Kategorien;Zutaten;Gewürze;Rezeptbuch;Seite;Rezept-Link;Selbst erfasst;Typ;Braucht;Zubereitung
+Spaghetti Bolognese;Pasta, Fleisch, Italienisch;500 g Hackfleisch | 400 g Spaghetti | 1 Dose Tomaten | 1 Stk Zwiebel | 50 g Parmesan (optional);1 TL Oregano | 1 Prise Salz | Pfeffer;Kochbuch Oma;45;;nein;Gericht;;
+Gemüsesuppe;Suppe, Vegetarisch, Schnell;1 kg Suppengemüse | 1 l Gemüsebrühe | 2 Stk Kartoffeln;Salz | Pfeffer | 1 Bund Petersilie (optional);;;;ja;Gericht;;"1. Gemüse und Kartoffeln schälen und würfeln.
+2. In der Brühe ca. 20 Min. köcheln lassen.
+3. Mit Salz, Pfeffer und Petersilie abschmecken."
+Selbstgemachte Nudeln;Pasta, Vegetarisch;500 g Mehl | 5 Stk Eier;Salz;;;;ja;Braucht Ergänzung;Soße;
+Tomatensoße;Soße, Vegetarisch;2 Dose Tomaten | 1 Stk Zwiebel;1 TL Oregano | Salz;;;;ja;Ergänzung;;
