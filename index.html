@@ -116,6 +116,12 @@
   .leftover-toggle.on { border-color: var(--accent); }
   .leftover-toggle.on .sw { background: var(--accent); }
   .leftover-toggle.on .sw::after { left: 21px; }
+  .plus { color: var(--muted); font-weight: 400; }
+  .dishblock { padding-bottom: 12px; margin-bottom: 12px; border-bottom: 1px solid var(--line); }
+  .dishhead { display: flex; align-items: center; gap: 8px; }
+  .dishhead h2 { margin: 4px 4px 2px; flex: 1; font-size: 22px; }
+  .dishhead .rm { border: 0; background: var(--chip); border-radius: 50%; width: 30px; height: 30px; font-size: 18px; color: var(--muted); }
+  details summary { cursor: pointer; color: var(--accent); font-weight: 600; margin: 10px 4px 4px; }
   .inglist { margin: 0 4px; padding-left: 20px; }
   .inglist li { margin: 3px 0; }
   textarea.in { resize: vertical; font: inherit; }
@@ -193,8 +199,8 @@ const LocalStore = {
   async deleteDish(id) { ls.set('ep.dishes', ls.get('ep.dishes', []).filter(x => x.id !== id));
     const p = ls.get('ep.plan', {}); for (const k in p) if (p[k].dish_id === id) delete p[k]; ls.set('ep.plan', p); },
   async plan(from, to) { const p = ls.get('ep.plan', {}); return Object.values(p).filter(e => e.day >= from && e.day <= to); },
-  async setSlot(day, slot, dish_id, note, leftover = false) { const p = ls.get('ep.plan', {}); const k = day + '|' + slot;
-    if (!dish_id && !note) delete p[k]; else p[k] = { day, slot, dish_id: dish_id || null, note: note || '', leftover: !!(dish_id && leftover) }; ls.set('ep.plan', p); },
+  async setSlot(day, slot, dish_id, note, leftover = false, extra_ids = []) { const p = ls.get('ep.plan', {}); const k = day + '|' + slot;
+    if (!dish_id && !note) delete p[k]; else p[k] = { day, slot, dish_id: dish_id || null, note: note || '', leftover: !!(dish_id && leftover), extra_ids: dish_id ? extra_ids : [] }; ls.set('ep.plan', p); },
   async catalog() { return Object.values(ls.get('ep.catalog', {})); },
   async saveCatalog(entries) { const c = ls.get('ep.catalog', {}); for (const e of entries) c[e.kind + '|' + e.name_key] = e; ls.set('ep.catalog', c); },
   async saveDishes(arr) { const all = ls.get('ep.dishes', []); const m = new Map(all.map(d => [d.id, d])); for (const d of arr) m.set(d.id, d); ls.set('ep.dishes', [...m.values()]); },
@@ -218,10 +224,10 @@ const SupaStore = {
   async saveDish(d) { const { error } = await this.sb.from('dishes').upsert(d); if (error) throw error; return d; },
   async deleteDish(id) { const { error } = await this.sb.from('dishes').delete().eq('id', id); if (error) throw error; },
   async plan(from, to) { const { data, error } = await this.sb.from('plan').select('*').gte('day', from).lte('day', to); if (error) throw error; return data; },
-  async setSlot(day, slot, dish_id, note, leftover = false) {
+  async setSlot(day, slot, dish_id, note, leftover = false, extra_ids = []) {
     const q = (!dish_id && !note)
       ? this.sb.from('plan').delete().eq('day', day).eq('slot', slot)
-      : this.sb.from('plan').upsert({ day, slot, dish_id: dish_id || null, note: note || '', leftover: !!(dish_id && leftover) });
+      : this.sb.from('plan').upsert({ day, slot, dish_id: dish_id || null, note: note || '', leftover: !!(dish_id && leftover), extra_ids: dish_id ? extra_ids : [] });
     const { error } = await q; if (error) throw error;
   },
   async catalog() { const { data, error } = await this.sb.from('catalog').select('*'); if (error) throw error; return data; },
@@ -270,6 +276,17 @@ async function loadPlan() {
   state.plan = {}; for (const e of await store.plan(from, to)) state.plan[e.day + '|' + e.slot] = e;
 }
 const dishById = id => state.dishes.find(d => d.id === id);
+// alle Gerichte eines Platzes (Hauptgericht + hinzugefügte), nur existierende
+const entryDishes = e => e ? [e.dish_id, ...(e.extra_ids || [])].map(dishById).filter(Boolean) : [];
+async function saveEntry(e) {
+  const k = e.day + '|' + e.slot;
+  // fehlt das Hauptgericht, rückt das erste hinzugefügte nach
+  const ids = [e.dish_id, ...(e.extra_ids || [])].filter(id => id && dishById(id));
+  e.dish_id = ids[0] || null; e.extra_ids = [...new Set(ids.slice(1))];
+  if (!e.dish_id) { e.leftover = false; e.extra_ids = []; }
+  await guard(() => store.setSlot(e.day, e.slot, e.dish_id, e.note || '', e.leftover, e.extra_ids));
+  if (e.dish_id || e.note) state.plan[k] = e; else delete state.plan[k];
+}
 const categories = () => [...new Set(state.dishes.flatMap(d => d.categories).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'de'));
 
 // ── Rendering ───────────────────────────────────────────────
@@ -300,9 +317,9 @@ function viewWeek() {
     const d = addDays(state.week, i), key = iso(d);
     html += `<section class="day${key === today ? ' today' : ''}"><h3>${DAYNAMES[i]} · ${fmtShort(d)}</h3>`;
     for (const [slot, label] of SLOTS) {
-      const e = state.plan[key + '|' + slot]; const dish = e && dishById(e.dish_id);
+      const e = state.plan[key + '|' + slot]; const all = entryDishes(e); const dish = all[0];
       let what;
-      if (dish) what = `<span class="what">${e.leftover ? '<span class="leftover">🍱 Reste</span> ' : ''}${esc(dish.name)}${dish.categories.length && !e.leftover ? `<div class="cat">${esc(dish.categories.join(', '))}</div>` : ''}${e.note ? `<div class="cat note">📝 ${esc(e.note)}</div>` : ''}</span>`;
+      if (dish) what = `<span class="what">${e.leftover ? '<span class="leftover">🍱 Reste</span> ' : ''}${all.map(x => esc(x.name)).join(' <span class="plus">+</span> ')}${dish.categories.length && !e.leftover ? `<div class="cat">${esc(dish.categories.join(', '))}</div>` : ''}${e.note ? `<div class="cat note">📝 ${esc(e.note)}</div>` : ''}</span>`;
       else if (e && e.note) what = `<span class="what note">${esc(e.note)}</span>`;
       else what = `<span class="what empty">+ Gericht wählen</span>`;
       html += `<button class="slot" data-act="pick" data-day="${key}" data-slot="${slot}"><span class="when">${label}</span>${what}</button>`;
@@ -338,7 +355,7 @@ function shoppingItems(field = 'ingredients') {
   const wFrom = iso(state.week), wTo = iso(addDays(state.week, 6));
   for (const e of Object.values(state.plan)) {
     if (e.leftover || e.day < wFrom || e.day > wTo) continue;
-    const dish = dishById(e.dish_id); if (!dish) continue;
+    for (const dish of entryDishes(e)) {
     const src = field === 'spices' ? dish.spices : dish.ingredients.filter(i => field === 'optional' ? i.optional : !i.optional);
     for (const ing of src) {
       const name = (ing.name || '').trim(); if (!name) continue;
@@ -347,6 +364,7 @@ function shoppingItems(field = 'ingredients') {
       const n = parseAmount(ing.amount);
       if (n === null) {} else if (isNaN(n)) it.extra.push(ing.amount); else { it.sum += n; it.hasNum = true; }
       it.dishes.add(dish.name);
+    }
     }
   }
   const extras = field === 'ingredients' ? ls.get('ep.extra.' + iso(state.week), []) : [];
@@ -447,9 +465,7 @@ function refreshPicker() {
   dlg.querySelectorAll('#pick-cats .chip').forEach(c => c.classList.toggle('on', c.dataset.cat === picker.cat));
   $('#pick-list').innerHTML = pickerListHtml(sh.dataset.day, sh.dataset.slot);
 }
-function slotDetailHtml(day, slot) {
-  const e = state.plan[day + '|' + slot]; const x = dishById(e.dish_id);
-  const d = parseISO(day); const label = SLOTS.find(s => s[0] === slot)[1];
+function dishBlockHtml(x, removable) {
   let src = '';
   if (x.recipe_self) src = '<p class="hint">📖 Rezept selbst erfasst</p>';
   else {
@@ -457,16 +473,26 @@ function slotDetailHtml(day, slot) {
     if (x.recipe_url) src += `<a class="btn primary full" style="display:block;text-align:center;text-decoration:none;margin-top:8px" href="${esc(x.recipe_url)}" target="_blank" rel="noopener">Rezept öffnen ↗</a>`;
   }
   const li = arr => arr.map(i => `<li>${esc([i.amount, i.unit, i.name].filter(Boolean).join(' '))}${i.optional ? ' <span class="hint">(optional)</span>' : ''}</li>`).join('');
-  return `<div class="sheet" data-day="${day}" data-slot="${slot}"><div class="sheet-head"><span style="width:60px"></span><b>${DAYNAMES[(d.getDay() + 6) % 7]} · ${label}</b><button data-act="close">Fertig</button></div>
-    <div class="sheet-body">
-      <h2 style="margin:4px 4px 2px">${esc(x.name)}</h2>
+  return `<section class="dishblock">
+      <div class="dishhead"><h2>${esc(x.name)}</h2>${removable ? `<button class="rm" data-act="removedish" data-id="${x.id}" aria-label="${esc(x.name)} entfernen">×</button>` : ''}</div>
       ${x.categories.length ? `<div class="hint" style="margin-top:0">${esc(x.categories.join(', '))}</div>` : ''}
       ${src}
-      ${x.ingredients.length ? `<div class="group-title">Zutaten</div><ul class="inglist">${li(x.ingredients)}</ul>` : ''}
-      ${x.spices.length ? `<div class="group-title">Gewürze</div><ul class="inglist">${li(x.spices)}</ul>` : ''}
-      <button class="leftover-toggle${e.leftover ? ' on' : ''}" data-act="toggleleftover"><span class="sw"></span><span><b>🍱 Reste</b><br><span class="hint" style="margin:0">${e.leftover ? 'Wird nicht eingekauft – schon an einem anderen Tag gekocht.' : 'Antippen, wenn das Gericht schon an einem anderen Tag gekocht wird.'}</span></span></button>
+      ${x.ingredients.length || x.spices.length ? `<details${removable ? '' : ' open'}><summary>Zutaten${x.spices.length ? ' & Gewürze' : ''}</summary>
+        ${x.ingredients.length ? `<ul class="inglist">${li(x.ingredients)}</ul>` : ''}
+        ${x.spices.length ? `<div class="group-title">Gewürze</div><ul class="inglist">${li(x.spices)}</ul>` : ''}</details>` : ''}
+    </section>`;
+}
+function slotDetailHtml(day, slot) {
+  const e = state.plan[day + '|' + slot]; const all = entryDishes(e);
+  const d = parseISO(day); const label = SLOTS.find(s => s[0] === slot)[1];
+  const multi = all.length > 1;
+  return `<div class="sheet" data-day="${day}" data-slot="${slot}"><div class="sheet-head"><span style="width:60px"></span><b>${DAYNAMES[(d.getDay() + 6) % 7]} · ${label}</b><button data-act="close">Fertig</button></div>
+    <div class="sheet-body">
+      ${all.map(x => dishBlockHtml(x, multi)).join('')}
+      <button class="btn full" style="margin-top:4px" data-act="adddish">+ Weiteres Gericht hinzufügen (Soße, Beilage …)</button>
+      <button class="leftover-toggle${e.leftover ? ' on' : ''}" data-act="toggleleftover"><span class="sw"></span><span><b>🍱 Reste</b><br><span class="hint" style="margin:0">${e.leftover ? 'Wird nicht eingekauft – schon an einem anderen Tag gekocht.' : 'Antippen, wenn das schon an einem anderen Tag gekocht wird.'}</span></span></button>
       <label class="f">Bemerkung</label><textarea class="in" id="plan-note" rows="2" placeholder="z. B. doppelte Portion, ohne Pilze">${esc(e.note || '')}</textarea>
-      <button class="btn full" style="margin-top:18px" data-act="unpick">Gericht abwählen</button>
+      <button class="btn full" style="margin-top:18px" data-act="unpick">${multi ? 'Alle Gerichte abwählen' : 'Gericht abwählen'}</button>
       <p class="hint">Die Bemerkung bleibt beim Abwählen erhalten.</p>
     </div></div>`;
 }
@@ -488,25 +514,26 @@ function availableLeftovers(day, slot) {
     if (used || found.some(f => f.dish.id === dish.id)) continue;
     const diff = Math.round((parseISO(day) - d) / 864e5);
     const when = diff === 0 ? 'heute' : diff === 1 ? 'gestern' : DAYNAMES[(d.getDay() + 6) % 7];
-    found.push({ dish, label: `${when} ${SLOTS[i][1]}` });
+    found.push({ dish, src: e.day + '|' + e.slot, names: entryDishes(e).map(x => x.name).join(' + '), label: `${when} ${SLOTS[i][1]}` });
   }
   return found;
 }
 
-function pickerHtml(day, slot) {
+function pickerHtml(day, slot, add = false) {
   const e = state.plan[day + '|' + slot];
   const d = parseISO(day); const label = SLOTS.find(s => s[0] === slot)[1];
   picker.cat = null; picker.q = ''; picker.random = null;
   const chips = `<button class="chip" data-act="pickcat" data-cat="*">Alle</button>` + pickerCats().map(c => `<button class="chip" data-act="pickcat" data-cat="${esc(c)}">${esc(c)}</button>`).join('');
-  const sugg = availableLeftovers(day, slot).map(prev => `<button class="leftover-sugg" data-act="chooseleftover" data-id="${prev.dish.id}"><span>🍱</span><span><b>Reste von ${esc(prev.label)}</b><br>${esc(prev.dish.name)}</span></button>`).join('');
+  const sugg = add ? '' : availableLeftovers(day, slot).map(prev => `<button class="leftover-sugg" data-act="chooseleftover" data-id="${prev.dish.id}" data-src="${prev.src}"><span>🍱</span><span><b>Reste von ${esc(prev.label)}</b><br>${esc(prev.names)}</span></button>`).join('');
   const body = `${sugg}<div class="catchips" id="pick-cats">${chips}</div>
     <button class="btn full" style="margin-top:10px" data-act="random">🎲 Zufallsgericht</button>
     <div id="pick-list">${pickerListHtml(day, slot)}</div>`;
-  return `<div class="sheet" data-day="${day}" data-slot="${slot}"><div class="sheet-head"><button data-act="close">Abbrechen</button><b>${DAYNAMES[(d.getDay() + 6) % 7]} · ${label}</b><button data-act="clearslot">Leeren</button></div>
-    <div class="sheet-body"><input class="search" id="pick-search" type="search" placeholder="Gericht suchen">
+  const names = entryDishes(e).map(x => x.name).join(' + ');
+  return `<div class="sheet" data-day="${day}" data-slot="${slot}"${add ? ' data-add="1"' : ''}><div class="sheet-head"><button data-act="${add ? 'backtodetail' : 'close'}">${add ? 'Zurück' : 'Abbrechen'}</button><b>${add ? 'Gericht hinzufügen' : `${DAYNAMES[(d.getDay() + 6) % 7]} · ${label}`}</b>${add ? '<span style="width:60px"></span>' : '<button data-act="clearslot">Leeren</button>'}</div>
+    <div class="sheet-body">${add ? `<p class="hint" style="margin-top:0">Zu <b>${esc(names)}</b> hinzufügen:</p>` : ''}<input class="search" id="pick-search" type="search" placeholder="Gericht suchen">
     ${state.dishes.length ? body : '<div class="empty-state">Noch keine Gerichte angelegt.</div>'}
-    <label class="f">Bemerkung oder Freitext (z. B. Reste, doppelte Portion)</label>
-    <div class="addrow" style="margin-top:0"><input class="in" id="pick-note" value="${esc(e && !e.dish_id ? e.note : '')}" placeholder="Freitext"><button class="btn" data-act="savenote">OK</button></div>
+    ${add ? '' : `<label class="f">Bemerkung oder Freitext (z. B. Reste, doppelte Portion)</label>
+    <div class="addrow" style="margin-top:0"><input class="in" id="pick-note" value="${esc(e && !e.dish_id ? e.note : '')}" placeholder="Freitext"><button class="btn" data-act="savenote">OK</button></div>`}
     <button class="btn full" style="margin-top:14px" data-act="newdish-from-pick">+ Neues Gericht anlegen</button></div></div>`;
 }
 
@@ -707,21 +734,33 @@ document.addEventListener('click', async ev => {
     }
     case 'unpick': {
       const sh = el.closest('.sheet'); const { day, slot } = sh.dataset; const note = $('#plan-note').value.trim();
-      await guard(() => store.setSlot(day, slot, null, note));
-      if (note) state.plan[day + '|' + slot] = { day, slot, dish_id: null, note }; else delete state.plan[day + '|' + slot];
+      await saveEntry({ day, slot, dish_id: null, note });
       render(); return openSheet(pickerHtml(day, slot));
+    }
+    case 'adddish': { const sh = el.closest('.sheet'); return openSheet(pickerHtml(sh.dataset.day, sh.dataset.slot, true)); }
+    case 'backtodetail': { const sh = el.closest('.sheet'); return openSheet(slotDetailHtml(sh.dataset.day, sh.dataset.slot)); }
+    case 'removedish': {
+      const sh = el.closest('.sheet'); const { day, slot } = sh.dataset; const e = { ...state.plan[day + '|' + slot] };
+      const id = el.dataset.id;
+      if (e.dish_id === id) e.dish_id = null; e.extra_ids = (e.extra_ids || []).filter(x => x !== id);
+      await saveEntry(e); render();
+      return openSheet(entryDishes(state.plan[day + '|' + slot]).length ? slotDetailHtml(day, slot) : pickerHtml(day, slot));
     }
     case 'choose': case 'chooseleftover': case 'clearslot': case 'savenote': {
       const sh = el.closest('.sheet'); const { day, slot } = sh.dataset;
+      if (sh.dataset.add && act === 'choose') {
+        const e = { ...state.plan[day + '|' + slot] }; e.extra_ids = [...(e.extra_ids || []), el.dataset.id];
+        await saveEntry(e); render(); return openSheet(slotDetailHtml(day, slot));
+      }
       const dish_id = (act === 'choose' || act === 'chooseleftover') ? el.dataset.id : null;
       const note = act === 'clearslot' ? '' : $('#pick-note').value.trim();
       const leftover = act === 'chooseleftover';
-      await guard(() => store.setSlot(day, slot, dish_id, note, leftover));
-      if (dish_id || note) state.plan[day + '|' + slot] = { day, slot, dish_id, note, leftover }; else delete state.plan[day + '|' + slot];
+      const extra_ids = leftover ? [...(state.plan[el.dataset.src]?.extra_ids || [])] : [];
+      await saveEntry({ day, slot, dish_id, note, leftover, extra_ids });
       closeSheet(); return render();
     }
     case 'newdish': return openSheet(dishFormHtml());
-    case 'newdish-from-pick': { const sh = el.closest('.sheet'); dlg.dataset.after = sh.dataset.day + '|' + sh.dataset.slot; return openSheet(dishFormHtml()); }
+    case 'newdish-from-pick': { const sh = el.closest('.sheet'); dlg.dataset.after = sh.dataset.day + '|' + sh.dataset.slot; if (sh.dataset.add) dlg.dataset.addmode = '1'; return openSheet(dishFormHtml()); }
     case 'editdish': return openSheet(dishFormHtml(dishById(el.dataset.id)));
     case 'addingr': { const k = el.dataset.kind; $('#ings-' + k).insertAdjacentHTML('beforeend', ingRow({}, k)); $(`#ings-${k} .ing:last-child input[name=amount]`).focus(); return; }
     case 'delingr': return el.closest('.ing').remove();
@@ -730,7 +769,11 @@ document.addEventListener('click', async ev => {
       if (!confirm(`„${d.name}“ wirklich löschen? Es wird auch aus allen Wochenplänen entfernt.`)) return;
       await guard(() => store.deleteDish(id));
       state.dishes = state.dishes.filter(x => x.id !== id);
-      for (const k in state.plan) if (state.plan[k].dish_id === id) delete state.plan[k];
+      for (const k in state.plan) {
+        const e = state.plan[k]; if (e.dish_id !== id && !(e.extra_ids || []).includes(id)) continue;
+        if (e.dish_id === id) e.dish_id = null; e.extra_ids = (e.extra_ids || []).filter(x => x !== id);
+        await saveEntry({ ...e });
+      }
       closeSheet(); return render();
     }
     case 'toggle': {
@@ -749,8 +792,7 @@ document.addEventListener('click', async ev => {
     case 'restore-replace': return applyRestore(true);
     case 'toggleleftover': {
       const sh = el.closest('.sheet'); const { day, slot } = sh.dataset; const ent = state.plan[day + '|' + slot]; if (!ent) return;
-      ent.leftover = !ent.leftover;
-      await guard(() => store.setSlot(day, slot, ent.dish_id, ent.note, ent.leftover));
+      await saveEntry({ ...ent, leftover: !ent.leftover });
       render(); return openSheet(slotDetailHtml(day, slot));
     }
     case 'togglecat': return el.classList.toggle('on');
@@ -794,7 +836,7 @@ document.addEventListener('change', e => {
   if (e.target.id === 'recipe_self') $('#recipe-src').hidden = e.target.checked;
   if (e.target.id === 'plan-note') {
     const sh = e.target.closest('.sheet'); const { day, slot } = sh.dataset; const k = day + '|' + slot; const ent = state.plan[k];
-    if (ent) { ent.note = e.target.value.trim(); guard(() => store.setSlot(day, slot, ent.dish_id, ent.note, ent.leftover)).then(() => { render(); toast('Bemerkung gespeichert'); }); }
+    if (ent) saveEntry({ ...ent, note: e.target.value.trim() }).then(() => { render(); toast('Bemerkung gespeichert'); });
   }
   if (e.target.id === 'file-backup' && e.target.files[0]) { doRestore(e.target.files[0]); e.target.value = ''; }
   if (e.target.id === 'file-csv' && e.target.files[0]) { doCsvImport(e.target.files[0]); e.target.value = ''; }
@@ -828,7 +870,12 @@ document.addEventListener('submit', async e => {
   for (const x of uniq) state.catalog[x.kind].set(x.name_key, x);
   const i = state.dishes.findIndex(x => x.id === d.id); if (i >= 0) state.dishes[i] = d; else state.dishes.push(d);
   const after = dlg.dataset.after; delete dlg.dataset.after;
-  if (after) { const [day, slot] = after.split('|'); const note = state.plan[after]?.note || ''; await guard(() => store.setSlot(day, slot, d.id, note)); state.plan[after] = { day, slot, dish_id: d.id, note }; }
+  const addmode = dlg.dataset.addmode; delete dlg.dataset.addmode;
+  if (after) {
+    const [day, slot] = after.split('|'); const cur = state.plan[after];
+    if (addmode && cur) { await saveEntry({ ...cur, extra_ids: [...(cur.extra_ids || []), d.id] }); closeSheet(); render(); return openSheet(slotDetailHtml(day, slot)); }
+    await saveEntry({ day, slot, dish_id: d.id, note: cur?.note || '' });
+  }
   closeSheet(); toast('Gespeichert'); render();
 });
 
