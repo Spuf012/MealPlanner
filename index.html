@@ -107,6 +107,9 @@
   .ing { display: grid; grid-template-columns: 62px 74px 1fr 40px 28px; gap: 5px; margin-bottom: 6px; align-items: center; }
   .ing .opt { border: 1px solid var(--line); background: var(--card); color: var(--muted); border-radius: 8px; height: 38px; font-size: 12px; font-weight: 600; padding: 0; }
   .ing .opt.on { background: var(--accent-soft); color: var(--accent); border-color: var(--accent); }
+  .inglist { margin: 0 4px; padding-left: 20px; }
+  .inglist li { margin: 3px 0; }
+  textarea.in { resize: vertical; font: inherit; }
   .opt-tag { font-size: 12px; color: var(--accent); font-weight: 600; }
   .ing .in { padding: 10px 8px; }
   .ing [data-act=delingr] { border: 0; background: transparent; color: var(--danger); font-size: 20px; padding: 0; }
@@ -292,6 +295,7 @@ function viewWeek() {
       let what;
       if (dish) what = `<span class="what">${esc(dish.name)}${dish.categories.length ? `<div class="cat">${esc(dish.categories.join(', '))}</div>` : ''}</span>`;
       else if (e && e.note) what = `<span class="what note">${esc(e.note)}</span>`;
+      if (dish && e.note) what = what.replace(/<\/span>$/, `<div class="cat note">📝 ${esc(e.note)}</div></span>`);
       else what = `<span class="what empty">+ Gericht wählen</span>`;
       html += `<button class="slot" data-act="pick" data-day="${key}" data-slot="${slot}"><span class="when">${label}</span>${what}</button>`;
     }
@@ -433,6 +437,29 @@ function refreshPicker() {
   dlg.querySelectorAll('#pick-cats .chip').forEach(c => c.classList.toggle('on', c.dataset.cat === picker.cat));
   $('#pick-list').innerHTML = pickerListHtml(sh.dataset.day, sh.dataset.slot);
 }
+function slotDetailHtml(day, slot) {
+  const e = state.plan[day + '|' + slot]; const x = dishById(e.dish_id);
+  const d = parseISO(day); const label = SLOTS.find(s => s[0] === slot)[1];
+  let src = '';
+  if (x.recipe_self) src = '<p class="hint">📖 Rezept selbst erfasst</p>';
+  else {
+    if (x.recipe_book) src += `<p class="hint">📖 ${esc(x.recipe_book)}${x.recipe_page ? `, Seite ${esc(x.recipe_page)}` : ''}</p>`;
+    if (x.recipe_url) src += `<a class="btn primary full" style="display:block;text-align:center;text-decoration:none;margin-top:8px" href="${esc(x.recipe_url)}" target="_blank" rel="noopener">Rezept öffnen ↗</a>`;
+  }
+  const li = arr => arr.map(i => `<li>${esc([i.amount, i.unit, i.name].filter(Boolean).join(' '))}${i.optional ? ' <span class="hint">(optional)</span>' : ''}</li>`).join('');
+  return `<div class="sheet" data-day="${day}" data-slot="${slot}"><div class="sheet-head"><span style="width:60px"></span><b>${DAYNAMES[(d.getDay() + 6) % 7]} · ${label}</b><button data-act="close">Fertig</button></div>
+    <div class="sheet-body">
+      <h2 style="margin:4px 4px 2px">${esc(x.name)}</h2>
+      ${x.categories.length ? `<div class="hint" style="margin-top:0">${esc(x.categories.join(', '))}</div>` : ''}
+      ${src}
+      ${x.ingredients.length ? `<div class="group-title">Zutaten</div><ul class="inglist">${li(x.ingredients)}</ul>` : ''}
+      ${x.spices.length ? `<div class="group-title">Gewürze</div><ul class="inglist">${li(x.spices)}</ul>` : ''}
+      <label class="f">Bemerkung</label><textarea class="in" id="plan-note" rows="2" placeholder="z. B. doppelte Portion, ohne Pilze">${esc(e.note || '')}</textarea>
+      <button class="btn full" style="margin-top:18px" data-act="unpick">Gericht abwählen</button>
+      <p class="hint">Die Bemerkung bleibt beim Abwählen erhalten.</p>
+    </div></div>`;
+}
+
 function pickerHtml(day, slot) {
   const e = state.plan[day + '|' + slot];
   const d = parseISO(day); const label = SLOTS.find(s => s[0] === slot)[1];
@@ -444,7 +471,7 @@ function pickerHtml(day, slot) {
   return `<div class="sheet" data-day="${day}" data-slot="${slot}"><div class="sheet-head"><button data-act="close">Abbrechen</button><b>${DAYNAMES[(d.getDay() + 6) % 7]} · ${label}</b><button data-act="clearslot">Leeren</button></div>
     <div class="sheet-body"><input class="search" id="pick-search" type="search" placeholder="Gericht suchen">
     ${state.dishes.length ? body : '<div class="empty-state">Noch keine Gerichte angelegt.</div>'}
-    <label class="f">Oder Freitext (z. B. Reste, Essen gehen)</label>
+    <label class="f">Bemerkung oder Freitext (z. B. Reste, doppelte Portion)</label>
     <div class="addrow" style="margin-top:0"><input class="in" id="pick-note" value="${esc(e && !e.dish_id ? e.note : '')}" placeholder="Freitext"><button class="btn" data-act="savenote">OK</button></div>
     <button class="btn full" style="margin-top:14px" data-act="newdish-from-pick">+ Neues Gericht anlegen</button></div></div>`;
 }
@@ -640,11 +667,20 @@ document.addEventListener('click', async ev => {
     case 'settings': return openSheet(settingsHtml());
     case 'logout': await store.logout(); location.reload(); return;
     case 'cat': state.cat = el.dataset.cat; return render();
-    case 'pick': return openSheet(pickerHtml(el.dataset.day, el.dataset.slot));
+    case 'pick': {
+      const { day, slot } = el.dataset; const e = state.plan[day + '|' + slot];
+      return openSheet(e && dishById(e.dish_id) ? slotDetailHtml(day, slot) : pickerHtml(day, slot));
+    }
+    case 'unpick': {
+      const sh = el.closest('.sheet'); const { day, slot } = sh.dataset; const note = $('#plan-note').value.trim();
+      await guard(() => store.setSlot(day, slot, null, note));
+      if (note) state.plan[day + '|' + slot] = { day, slot, dish_id: null, note }; else delete state.plan[day + '|' + slot];
+      render(); return openSheet(pickerHtml(day, slot));
+    }
     case 'choose': case 'clearslot': case 'savenote': {
       const sh = el.closest('.sheet'); const { day, slot } = sh.dataset;
       const dish_id = act === 'choose' ? el.dataset.id : null;
-      const note = act === 'savenote' ? $('#pick-note').value.trim() : '';
+      const note = act === 'clearslot' ? '' : $('#pick-note').value.trim();
       await guard(() => store.setSlot(day, slot, dish_id, note));
       if (dish_id || note) state.plan[day + '|' + slot] = { day, slot, dish_id, note }; else delete state.plan[day + '|' + slot];
       closeSheet(); return render();
@@ -715,6 +751,10 @@ document.addEventListener('input', e => {
 // Checkbox "Rezept selbst erfasst" & Einheit aus gespeicherter Zutat übernehmen
 document.addEventListener('change', e => {
   if (e.target.id === 'recipe_self') $('#recipe-src').hidden = e.target.checked;
+  if (e.target.id === 'plan-note') {
+    const sh = e.target.closest('.sheet'); const { day, slot } = sh.dataset; const k = day + '|' + slot; const ent = state.plan[k];
+    if (ent) { ent.note = e.target.value.trim(); guard(() => store.setSlot(day, slot, ent.dish_id, ent.note)).then(() => { render(); toast('Bemerkung gespeichert'); }); }
+  }
   if (e.target.id === 'file-backup' && e.target.files[0]) { doRestore(e.target.files[0]); e.target.value = ''; }
   if (e.target.id === 'file-csv' && e.target.files[0]) { doCsvImport(e.target.files[0]); e.target.value = ''; }
   if (e.target.name === 'name' && e.target.closest('.ing')) {
@@ -747,7 +787,7 @@ document.addEventListener('submit', async e => {
   for (const x of uniq) state.catalog[x.kind].set(x.name_key, x);
   const i = state.dishes.findIndex(x => x.id === d.id); if (i >= 0) state.dishes[i] = d; else state.dishes.push(d);
   const after = dlg.dataset.after; delete dlg.dataset.after;
-  if (after) { const [day, slot] = after.split('|'); await guard(() => store.setSlot(day, slot, d.id, '')); state.plan[after] = { day, slot, dish_id: d.id, note: '' }; }
+  if (after) { const [day, slot] = after.split('|'); const note = state.plan[after]?.note || ''; await guard(() => store.setSlot(day, slot, d.id, note)); state.plan[after] = { day, slot, dish_id: d.id, note }; }
   closeSheet(); toast('Gespeichert'); render();
 });
 
