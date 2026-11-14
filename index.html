@@ -700,6 +700,8 @@ const OTHER_UNITS = ['becher', 'glas', 'gläser', 'tasse', 'tassen', 'msp', 'msp
 const PANTRY_RE = /^(salz|meersalz|pfeffer|.*pfeffer$|.*salz$|.*öl$|öl|.*essig|essig|zucker|puderzucker|brauner zucker|mehl|weizenmehl|butter|.*brühe|brühe|.*bouillon|sojasoße|sojasauce|.*senf|senf|tomatenmark|.*pulver|.*gewürz|gewürz.*|paprika edelsüß|paprika rosenscharf|curry|oregano|thymian|rosmarin|majoran|kreuzkümmel|kümmel|zimt|muskat|muskatnuss|chiliflocken|cayennepfeffer|lorbeerblatt|lorbeerblätter|lorbeer|backpulver|natron|speisestärke|stärke|maisstärke|soßenbinder|saucenbinder|honig|zitronensaft|weißwein|rotwein|vanillezucker|kurkuma|ingwerpulver|italienische kräuter|kräuter der provence|.*kräuter, getrocknet|crema di balsamico|worcestershiresauce)$/i;
 const WATER_RE = /^(wasser|warmes wasser|kaltes wasser|heißes wasser|lauwarmes wasser|leitungswasser)$/i;
 
+// Handelsmarken am Anfang des Zutatennamens („REWE Beste Wahl Toastbrot“ → „Toastbrot“)
+const BRAND_RE = /^\s*(rewe\s+beste\s+wahl|rewe\s+bio|rewe\s+feine\s+welt|rewe\s+regional|rewe\s+frei\s+von|rewe|ja!|gut\s*&\s*günstig|k-classic|milbona|edeka)\s+/i;
 function numFromText(t) {
   const fr = { '½': '.5', '¼': '.25', '¾': '.75', '⅓': '.33', '⅔': '.67', '⅛': '.125' };
   t = t.replace(/(\d)?\s*([½¼¾⅓⅔⅛])/g, (_, d, f) => (d || '0') + fr[f]);
@@ -724,7 +726,7 @@ function parseRecipeLine(line) {
   if (m) {
     amount = m[1].includes('-') || m[1].includes('–') ? m[1].replace(/\s/g, '') : numFromText(m[1].replace(/\s/g, ''));
     let w = (m[2] || ''), rest = m[3] || '';
-    const lw = w.toLowerCase();
+    const lw = w.toLowerCase().replace(/\((n|s|e|en|er)\)$/, '');
     if (UNIT_MAP[lw] && rest) { unit = UNIT_MAP[lw]; name = rest; }
     else if (OTHER_UNITS.includes(lw) && rest) { unit = 'Stk'; name = `${rest} (${w.replace(/\.$/, '')})`; }
     else { name = [w, rest].filter(Boolean).join(' '); }
@@ -733,7 +735,7 @@ function parseRecipeLine(line) {
   // „500g“ zusammengeschrieben
   const g = amount === '' && t.match(/^(\d+(?:[.,]\d+)?)(g|kg|ml|l)\s+(.*)$/i);
   if (g) { amount = g[1].replace('.', ','); unit = UNIT_MAP[g[2].toLowerCase()]; name = g[3]; }
-  name = name.replace(/\(n\)|\(s\)|\(e\)|\(en\)/g, '').replace(/\s*,.*$/, '').replace(/\s+/g, ' ').trim();
+  name = name.replace(/\(n\)|\(s\)|\(e\)|\(en\)|\(er\)/g, '').replace(/\s*,.*$/, '').replace(BRAND_RE, '').replace(/\s+/g, ' ').trim();
   return { amount, unit, name, optional };
 }
 function recipeToDish(r) {
@@ -778,13 +780,20 @@ function importSheetHtml(url = '', mode = 'link') {
     <p class="hint" id="import-status"></p></div></div>`;
 }
 // eingefügten Rezepttext in Name, Zutaten und Schritte zerlegen
-const AMOUNT_ONLY_RE = /^(ca\.\s*)?[\d.,/½¼¾⅓⅔⅛]+(\s*[-–]\s*[\d.,/½¼¾⅓⅔⅛]+)?\s*([a-zäöüß.]{1,12})?$/i;
+const AMOUNT_ONLY_RE = /^(ca\.\s*)?[\d.,/½¼¾⅓⅔⅛]+(\s*[-–]\s*[\d.,/½¼¾⅓⅔⅛]+)?\s*([a-zäöüß.]{1,12})?(\((?:n|s|e|en|er)\))?$/i;
 // nur Menge (+ Einheit) ohne Zutat, z. B. „500 g“ oder „2“ – Zutat folgt in der nächsten Zeile
 const isAmountOnly = l => { const m = l.match(AMOUNT_ONLY_RE); if (!m) return false; const u = (m[3] || '').toLowerCase(); return !u || !!UNIT_MAP[u] || OTHER_UNITS.includes(u) || /^(stück|stk\.?)$/.test(u); };
 function parsePastedRecipe(text) {
   const lines = String(text || '').replace(/\r/g, '').split('\n').map(l => l.replace(/[\u00a0\t]+/g, ' ').replace(/^[•·▪*\-–]\s+/, '').trim());
   const isIngHead = l => /^(zutaten|einkaufsliste|du brauchst|das brauchst du)\b[^a-zäöüß]*(für.*)?:?$/i.test(l);
   const isStepHead = l => /^(zubereitung|anleitung|so geht'?s|so wird'?s gemacht|schritte|zubereitungsschritte|arbeitsschritte|und so geht'?s)\b.*:?$/i.test(l) && l.length < 40;
+  const isToolHead = l => /^(utensilien|küchenutensilien|küchengeräte|das brauchst du an utensilien|benötigte utensilien|equipment|werkzeuge?)\s*:?$/i.test(l);
+  // Seitentext von Shop-/Rezeptseiten, der keine Zutat ist
+  const isNoise = l => /^(zutaten online bestellen|online bestellen|alle zutaten (in den )?warenkorb.*|in den warenkorb|zum warenkorb|zur einkaufsliste( hinzufügen)?|auf die einkaufsliste|einkaufsliste|was hast du noch da\??|das hast du (bestimmt )?(noch )?(zu ?hause|da)\??|im markt verfügbar|nicht im sortiment|jetzt bestellen|lieferservice|abholservice|produkt auswählen|ersetzen|merken|drucken|teilen|bewerten|rezept speichern)$/i.test(l)
+    || /^(portionen?|personen|menge|anzahl)\s*[-+]?\s*\d*\s*[-+]?$/i.test(l) || /^[-+]$/.test(l);
+  const tools = new Set();
+  // Shop-Layout (z. B. REWE): Utensilien-Liste oder Zutatenzeilen mit „•“ über den Schritten
+  const shopLayout = lines.some(l => isToolHead(l) || l.includes('•'));
   const yieldRe = /(\d+)\s*(portionen|portion|personen|stück|stk\.?)\b/i;
   let name = '', yld = '', ing = [], steps = [], sec = 'pre';
   const nonEmpty = lines.filter(Boolean);
@@ -793,6 +802,14 @@ function parsePastedRecipe(text) {
     let l = nonEmpty[i];
     if (isIngHead(l)) { sec = 'ing'; const y = l.match(yieldRe); if (y) yld = `${y[1]} ${y[2]}`; continue; }
     if (isStepHead(l)) { sec = 'steps'; continue; }
+    if (isToolHead(l)) { sec = 'tools'; continue; }
+    if (sec === 'tools') { if (l.length < 40 && !/[.!?]$/.test(l)) { tools.add(l.toLowerCase()); continue; } sec = 'steps'; }
+    if (isNoise(l)) {
+      if (/^(was hast du noch da|das hast du)/i.test(l)) sec = 'ing';   // danach folgen Vorratszutaten
+      // „Portionen“ gefolgt von einer reinen Zahl: Zahl ist die Portionsangabe
+      if (/^(portionen?|personen)/i.test(l) && /^\d+$/.test(nonEmpty[i + 1] || '')) { if (!yld) yld = `${nonEmpty[i + 1]} Portionen`; i++; }
+      continue;
+    }
     if (!yld && sec !== 'steps') { const y = l.match(yieldRe); if (y && l.length < 40 && !/^\d+\s*(stück|stk)/i.test(l)) { yld = `${y[1]} ${y[2]}`; continue; } }
     if (sec === 'pre') {
       if (!hasHeads && (AMOUNT_ONLY_RE.test(l.split(' ')[0]) || /^\d/.test(l)) && l.length < 60 && name) { sec = 'ing'; }
@@ -803,12 +820,18 @@ function parsePastedRecipe(text) {
       else {
         if (/:$/.test(l) && l.length < 40) continue;                 // Zwischenüberschrift „Für den Teig:“
         if (/^(portionen?|personen|menge|anzahl)$/i.test(l)) continue;
-        if (isAmountOnly(l) && nonEmpty[i + 1] && !isStepHead(nonEmpty[i + 1])) { l = l + ' ' + nonEmpty[++i]; }  // „500 g“ / „Nudeln“ in zwei Zeilen
+        if (isAmountOnly(l) && nonEmpty[i + 1] && !isStepHead(nonEmpty[i + 1]) && !isNoise(nonEmpty[i + 1]) && !isToolHead(nonEmpty[i + 1])) { l = l + ' ' + nonEmpty[++i]; }  // „500 g“ / „Nudeln“ in zwei Zeilen
+        if (l.includes('•')) { l.split(/\s*•\s*/).filter(Boolean).forEach(x => ing.push(x)); continue; }
         ing.push(l); continue;
       }
     }
     if (sec === 'steps') {
       if (/^(schritt\s*)?\d+[.)]?$/i.test(l)) continue;             // nur „Schritt 1“ / „1.“
+      if (l.includes('•')) continue;                                 // Zutaten-Zeile über dem Schritt („0,5 Bio Orange • 100 g Mayonnaise“)
+      if (tools.has(l.toLowerCase())) continue;                      // Utensil („Zestenreibe“)
+      if (/^(utensilien|zutaten)\s*:/i.test(l)) continue;
+      // kurze Zeile ohne Satzzeichen und ohne Verb-Anschein = Utensil/Überschrift, kein Arbeitsschritt
+      if (shopLayout && l.split(' ').length <= 3 && l.length < 30 && !/[.!?:]/.test(l) && !/\d/.test(l)) continue;
       const st = l.replace(/^(schritt\s*)?\d+[.):]\s*/i, '').trim();
       if (st) steps.push(st);
     }
@@ -1053,7 +1076,6 @@ document.addEventListener('click', async ev => {
     }
     case 'importlink': {
       openSheet(importSheetHtml());
-      try { const t = await navigator.clipboard.readText(); if (/^https?:\/\//.test(t.trim())) $('#import-url').value = t.trim(); } catch {}
       return $('#import-url').focus();
     }
     case 'doimport': return doImport($('#import-url').value);
