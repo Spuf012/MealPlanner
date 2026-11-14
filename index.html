@@ -166,7 +166,7 @@ const CONFIG = {
 
 // Test-Funktion „Alle Gerichte löschen“ in den Einstellungen – später auf false setzen
 const SHOW_DELETE_ALL = true;
-const APP_VERSION = '2026-11-14.5';
+const APP_VERSION = '2026-11-14.6';
 const SLOTS = [['mittag', 'Mittag'], ['abend', 'Abend']];
 const UNITS = ['', 'g', 'kg', 'ml', 'l', 'Stk', 'EL', 'TL', 'Prise', 'Pck', 'Dose', 'Bund', 'Zehe', 'Scheibe'];
 const CAT_GROUPS = [
@@ -645,7 +645,7 @@ function dishFormHtml(d, fresh = false) {
   const spices = d.spices.length ? d.spices : [{}];
   return `<form class="sheet" id="dishform" data-id="${d.id}" data-new="${isNew ? 1 : 0}"><div class="sheet-head"><button type="button" data-act="close">Abbrechen</button><b>${isNew ? 'Neues Gericht' : 'Gericht bearbeiten'}</b><button type="submit">Sichern</button></div>
     <div class="sheet-body">
-      ${d._import ? `<div class="banner">🔗 Importiert aus <b>${esc(d._import.host)}</b>${d._import.yield ? ` · ${esc(d._import.yield)}` : ''}<br>Bitte prüfen: Kategorien wählen, Zutaten/Gewürze und Mengen kontrollieren.${d._import.dupe ? '<br><b>Achtung:</b> Ein Gericht mit diesem Namen gibt es schon.' : ''}</div>` : ''}
+      ${d._import ? `<div class="banner">🔗 Importiert aus <b>${esc(d._import.host)}</b>${d._import.yield ? ` · ${esc(d._import.yield)}` : ''}<br>Bitte prüfen: Kategorien wählen, Zutaten/Gewürze und Mengen kontrollieren.${d._import.dupe ? '<br><b>Achtung:</b> Ein Gericht mit diesem Namen gibt es schon.' : ''}${!d.name ? '<br><b>Name bitte ergänzen</b> – im Text war kein Gerichtname erkennbar.' : ''}</div>` : ''}
       <label class="f">Name</label><input class="in" name="dname" required value="${esc(d.name)}" placeholder="z. B. Spaghetti Bolognese">
       <label class="f">Kategorien (mehrere möglich)</label><div id="catchips">${groups.map(([g, cs]) => `<div class="catgroup" data-group="${esc(g)}"${cs.length ? '' : ' hidden'}><div class="catlabel">${esc(g)}</div><div class="catchips">${cs.map(c => catChip(c, d.categories.includes(c))).join('')}</div></div>`).join('')}</div>
       <div class="addrow" style="margin-top:8px"><input class="in" id="newcat" placeholder="Neue Kategorie"><button type="button" class="btn" data-act="addcat">+</button></div>
@@ -732,6 +732,8 @@ function parseRecipeLine(line) {
   let t = line.replace(/\s+/g, ' ').trim();
   let optional = false;
   t = t.replace(/\s*\((optional|nach belieben|n\. ?b\.)\)\s*/gi, () => { optional = true; return ' '; }).trim();
+  t = t.replace(/^(optional|opt\.|nach belieben|wer mag|wer möchte)\s*:?\s*/i, () => { optional = true; return ''; }).trim();
+  t = t.replace(/\s*\((zum|zur|für|z\.\s?b\.|ca\.|am stück|oder|o\.\s?ä\.|alternativ|je nach)[^)]*\)/gi, '').trim();
   if (/\b(nach belieben|evtl\.|eventuell|optional)\b/i.test(t)) { optional = true; t = t.replace(/,?\s*\b(nach belieben|evtl\.|eventuell|optional)\b/gi, '').trim(); }
   t = t.replace(/^(ca\.|circa|etwa|etwas|einige|ein paar|wenig|reichlich)(?=\s|$)\s*/i, '');
   const m = t.match(/^([\d.,/½¼¾⅓⅔⅛]+(?:\s*[-–]\s*[\d.,/½¼¾⅓⅔⅛]+)?)\s*([^\s\d]+)?\s*(.*)$/);
@@ -754,7 +756,7 @@ function parseRecipeLine(line) {
 function recipeToDish(r) {
   const ingredients = [], spices = [];
   for (const line of r.ingredients || []) {
-    const parts = /^[a-zäöüß ]+ und [a-zäöüß ]+$/i.test(line) && line.split(' ').length <= 4 ? line.split(/ und /i) : [line];
+    const parts = /^[a-zäöüß ]+ (und|&) [a-zäöüß ]+$/i.test(line) && line.split(' ').length <= 4 ? line.split(/ (?:und|&) /i) : [line];
     for (const part of parts) {
       const i = parseRecipeLine(part); if (!i.name || WATER_RE.test(i.name)) continue;
       const learned = state.learned?.get(i.name.toLowerCase()) || state.learned?.get(canonicalName(i.name, 'gewuerz').toLowerCase())
@@ -798,7 +800,11 @@ const AMOUNT_ONLY_RE = /^(ca\.\s*)?[\d.,/½¼¾⅓⅔⅛]+(\s*[-–]\s*[\d.,/½�
 const isAmountOnly = l => { const m = l.match(AMOUNT_ONLY_RE); if (!m) return false; const u = (m[3] || '').toLowerCase(); return !u || !!UNIT_MAP[u] || OTHER_UNITS.includes(u) || /^(stück|stk\.?)$/.test(u); };
 function parsePastedRecipe(text) {
   const lines = String(text || '').replace(/\r/g, '').replace(/[\u200b-\u200f\u2060\ufeff]/g, '').split('\n')
-    .map(l => l.replace(/[\u00a0\u202f\t]+/g, ' ').replace(/^[•·▪*\-–]\s+/, '').replace(/\s+/g, ' ').trim());
+    .map(l => l.replace(/[\u00a0\u202f\t]+/g, ' ')
+      .replace(/^(\d)\uFE0F?\u20E3\s*/u, '$1. ')                                   // 1️⃣ → „1. “
+      .replace(/^(?:[\p{Extended_Pictographic}\p{So}\uFE0F\u200D•·▪*\-–→>]+\s*)+/u, '')   // ✳️ ✅ ▪️ 👉 • - als Aufzählung
+      .replace(/(\s+[#@][\p{L}\p{N}_äöüß]+)+\s*$/u, '')                             // Hashtags/Erwähnungen am Zeilenende
+      .replace(/\s+/g, ' ').trim());
   const isIngHead = l => /^(zutaten|einkaufsliste|du brauchst|das brauchst du)\b[^a-zäöüß]*(für.*)?:?$/i.test(l);
   const isStepHead = l => /^(zubereitung|anleitung|so geht'?s|so wird'?s gemacht|schritte|zubereitungsschritte|arbeitsschritte|und so geht'?s)\b.*:?$/i.test(l) && l.length < 40;
   const isToolHead = l => /^(utensilien|küchenutensilien|küchengeräte|das brauchst du an utensilien|benötigte utensilien|equipment|werkzeuge?)\s*:?$/i.test(l);
@@ -808,6 +814,9 @@ function parsePastedRecipe(text) {
   // ab hier gehört nichts mehr zum Rezept (Hinweise, Nährwerte, Empfehlungen) – bis zur nächsten Überschrift
   const isStopHead = l => /^(wir zeigen dir.*|zum rezeptfinder|rezeptfinder|ernährwert.*|nährwert.*|weitere rezepte.*|ähnliche rezepte.*|passende rezepte.*|das könnte dir (auch )?gefallen.*|mehr rezepte.*|tipps?( (&|und) tricks)?|kommentare.*|\d* ?bewertungen.*|produkte zum rezept.*|newsletter.*)$/i.test(l);
   // Beschriftungen von Symbolen/Knöpfen
+  // Social-Media-Zeilen ohne Rezeptinhalt: „Anzeige“, „Teil 29 | …“, reine Hashtag-Zeilen, „Link in Bio“
+  const isSocial = l => /^(\*?(anzeige|werbung|unbezahlte werbung|unbeauftragte werbung|ad|sponsored)\b|(teil|folge|part|episode)\s*\d+\b|link (in|im) (der )?bio|speicher(e|t)? (dir )?(das|dieses) rezept|folg(e|t) (mir|uns)|rezept (zum|als) (nachkochen|speichern))/i.test(l)
+    || /^([#@][\p{L}\p{N}_äöüß]+\s*)+$/u.test(l);
   const isUiLabel = l => /^(arrow[ -]?(right|left|up|down)|chevron.*|icon.*|pfeil.*|play|pause|close|schließen|menü|menu|mehr anzeigen|weniger anzeigen|alle anzeigen|zurück|weiter|info|i)$/i.test(l);
   const tools = new Set();
   const ingKeys = new Set();   // Zutatenzeilen (komplett und ohne Menge), um Wiederholungen in den Schritten zu erkennen
@@ -822,7 +831,7 @@ function parsePastedRecipe(text) {
     let l = nonEmpty[i];
     if (isIngHead(l)) { sec = 'ing'; const y = l.match(yieldRe); if (y) yld = `${y[1]} ${y[2]}`; continue; }
     if (isStepHead(l)) { sec = 'steps'; continue; }
-    if (isUiLabel(l)) continue;
+    if (isUiLabel(l) || isSocial(l)) continue;
     if (isStopHead(l)) { sec = 'skip'; continue; }
     if (isToolHead(l)) { sec = 'tools'; continue; }
     if (sec === 'skip') continue;
@@ -842,6 +851,7 @@ function parsePastedRecipe(text) {
       if (!hasHeads && l.length > 70) { sec = 'steps'; }
       else {
         if (/:$/.test(l) && l.length < 40) continue;                 // Zwischenüberschrift „Für den Teig:“
+        l = l.replace(/^\d+[.)]\s+(?=[\d½¼¾⅓⅔⅛a-zäöüß])/i, '');        // Listennummer „1. 250 g …“
         if (/^(portionen?|personen|menge|anzahl)$/i.test(l)) continue;
         if (isAmountOnly(l) && nonEmpty[i + 1] && !isStepHead(nonEmpty[i + 1]) && !isNoise(nonEmpty[i + 1]) && !isToolHead(nonEmpty[i + 1])) { l = l + ' ' + nonEmpty[++i]; }  // „500 g“ / „Nudeln“ in zwei Zeilen
         if (l.includes('•')) { l.split(/\s*•\s*/).filter(Boolean).forEach(x => { ing.push(x); addIngKey(x); }); continue; }
@@ -868,7 +878,8 @@ function parsePastedRecipe(text) {
       if (st) steps.push(st);
     }
   }
-  return { name, ingredients: ing, steps, yield: yld };
+  const noEmoji = x => x.replace(/[\p{Extended_Pictographic}\uFE0F\u200D\u20E3]/gu, '').replace(/\s+/g, ' ').trim();
+  return { name: noEmoji(name).replace(/[|–-]\s*$/, '').trim(), ingredients: ing.map(noEmoji).filter(Boolean), steps: steps.map(noEmoji).filter(Boolean), yield: yld };
 }
 function doImportText() {
   const text = $('#import-paste').value, st = $('#import-status');
