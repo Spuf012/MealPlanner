@@ -442,7 +442,10 @@ function listText() {
 const dlg = $('#dlg');
 function openSheet(html) { dlg.innerHTML = html; if (!dlg.open) dlg.showModal(); }
 function closeSheet() { dlg.close(); }
-dlg.addEventListener('click', e => { if (e.target === dlg) closeSheet(); });
+// Pflicht-Auswahl (Ergänzung fehlt noch): Schließen nur über Auswahl oder „Nichts weiter dazu“
+const sheetLocked = () => !!dlg.querySelector('.sheet[data-required]');
+dlg.addEventListener('click', e => { if (e.target === dlg && !sheetLocked()) closeSheet(); });
+dlg.addEventListener('cancel', e => { if (sheetLocked()) { e.preventDefault(); toast('Bitte etwas dazu wählen oder „Nichts weiter dazu“'); } });
 
 const picker = { cat: null, q: '', random: null };
 const NOCAT = 'Ohne Kategorie';
@@ -577,10 +580,11 @@ function pickerHtml(day, slot, add = false) {
     <button class="btn full" style="margin-top:10px" data-act="random" id="randombtn">${randomLabel()}</button>
     <div id="pick-list">${pickerListHtml(day, slot)}</div>`;
   const names = entryDishes(e).map(x => x.name).join(' + ');
-  return `<div class="sheet" data-day="${day}" data-slot="${slot}"${add ? ' data-add="1"' : ''}><div class="sheet-head"><button data-act="${add ? 'backtodetail' : 'close'}">${add ? 'Zurück' : 'Abbrechen'}</button><b>${add ? 'Gericht hinzufügen' : `${DAYNAMES[(d.getDay() + 6) % 7]} · ${label}`}</b>${add ? '<span style="width:60px"></span>' : '<button data-act="clearslot">Leeren</button>'}</div>
+  const head = need ? '<span style="width:60px"></span>' : `<button data-act="${add ? 'backtodetail' : 'close'}">${add ? 'Zurück' : 'Abbrechen'}</button>`;
+  return `<div class="sheet" data-day="${day}" data-slot="${slot}"${add ? ' data-add="1"' : ''}${need ? ' data-required="1"' : ''}><div class="sheet-head">${head}<b>${add ? (need ? 'Was gibt\'s dazu?' : 'Gericht hinzufügen') : `${DAYNAMES[(d.getDay() + 6) % 7]} · ${label}`}</b>${add ? '<span style="width:60px"></span>' : '<button data-act="clearslot">Leeren</button>'}</div>
     <div class="sheet-body">${add ? `<p class="hint" style="margin-top:0">${base ? `Was gibt's zu <b>${esc(base.name)}</b>? (braucht: ${esc(base.needs.join(', '))})` : need ? `Wozu gibt's <b>${esc(names)}</b>?` : `Zu <b>${esc(names)}</b> hinzufügen:`}</p>` : ''}<input class="search" id="pick-search" type="search" placeholder="Gericht suchen">
     ${state.dishes.length ? body : '<div class="empty-state">Noch keine Gerichte angelegt.</div>'}
-    ${add ? `<label class="f">Oder Freitext (z. B. Pesto aus dem Glas)</label>
+    ${add ? `<label class="f">Oder Freitext (z. B. ${need && !base ? 'Nudeln, Reis, Brot' : 'Pesto aus dem Glas'})</label>
     <div class="addrow" style="margin-top:0"><input class="in" id="pick-text" placeholder="Freitext"><button class="btn" data-act="addtext">OK</button></div>
     ${need ? `<button class="btn full" style="margin-top:10px" data-act="backtodetail">${base ? 'Ohne Ergänzung fertig' : 'Nichts weiter dazu'}</button>` : ''}` : `<label class="f">Bemerkung oder Freitext (z. B. Reste, doppelte Portion)</label>
     <div class="addrow" style="margin-top:0"><input class="in" id="pick-note" value="${esc(e && !e.dish_id ? e.note : '')}" placeholder="Freitext"><button class="btn" data-act="savenote">OK</button></div>`}
@@ -788,7 +792,14 @@ document.addEventListener('click', async ev => {
     case 'prevweek': state.week = addDays(state.week, -7); return refreshWeek();
     case 'nextweek': state.week = addDays(state.week, 7); return refreshWeek();
     case 'thisweek': state.week = mondayOf(new Date()); return refreshWeek();
-    case 'close': return closeSheet();
+    case 'close': {
+      if ($('#dishform') && dlg.dataset.after) {
+        const [day, slot] = dlg.dataset.after.split('|'); delete dlg.dataset.after; delete dlg.dataset.addmode;
+        return openSheet(missingNeed(state.plan[day + '|' + slot]) ? pickerHtml(day, slot, true) : pickerHtml(day, slot));
+      }
+      delete dlg.dataset.after; delete dlg.dataset.addmode;
+      return closeSheet();
+    }
     case 'settings': return openSheet(settingsHtml());
     case 'logout': await store.logout(); location.reload(); return;
     case 'cat': state.cat = el.dataset.cat; return render();
@@ -841,7 +852,7 @@ document.addEventListener('click', async ev => {
       if (act === 'choose') return afterChoose(day, slot, false);
       closeSheet(); return render();
     }
-    case 'newdish': return openSheet(dishFormHtml());
+    case 'newdish': delete dlg.dataset.after; delete dlg.dataset.addmode; return openSheet(dishFormHtml());
     case 'newdish-from-pick': { const sh = el.closest('.sheet'); dlg.dataset.after = sh.dataset.day + '|' + sh.dataset.slot; if (sh.dataset.add) dlg.dataset.addmode = '1'; return openSheet(dishFormHtml()); }
     case 'editdish': return openSheet(dishFormHtml(dishById(el.dataset.id)));
     case 'addingr': { const k = el.dataset.kind; $('#ings-' + k).insertAdjacentHTML('beforeend', ingRow({}, k)); $(`#ings-${k} .ing:last-child input[name=amount]`).focus(); return; }
