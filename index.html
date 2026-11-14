@@ -471,18 +471,24 @@ function slotDetailHtml(day, slot) {
     </div></div>`;
 }
 
-// zuletzt gekochtes Gericht vor diesem Platz (max. 3 Tage zurück, keine Reste)
+// zuletzt gekochtes Gericht vor diesem Platz (max. 3 Tage zurück).
+// Jedes Original darf nur einmal als Reste verwendet werden.
+function slotPos(day, slot) { return Math.round(parseISO(day) / 864e5) * SLOTS.length + SLOTS.findIndex(x => x[0] === slot); }
 function previousCooked(day, slot) {
-  const order = SLOTS.map(x => x[0]);
+  const order = SLOTS.map(x => x[0]); const target = slotPos(day, slot);
+  const entries = Object.values(state.plan);
   let d = parseISO(day), i = order.indexOf(slot);
   for (let step = 0; step < 3 * order.length; step++) {
     i--; if (i < 0) { i = order.length - 1; d = addDays(d, -1); }
     const e = state.plan[iso(d) + '|' + order[i]]; const dish = e && !e.leftover && dishById(e.dish_id);
-    if (dish) {
-      const diff = Math.round((parseISO(day) - d) / 864e5);
-      const when = diff === 0 ? 'heute' : diff === 1 ? 'gestern' : DAYNAMES[(d.getDay() + 6) % 7];
-      return { dish, label: `${when} ${SLOTS[i][1]}` };
-    }
+    if (!dish) continue;
+    const orig = slotPos(e.day, e.slot);
+    const used = entries.some(x => x.leftover && x.dish_id === dish.id && slotPos(x.day, x.slot) > orig
+      && slotPos(x.day, x.slot) !== target && slotPos(x.day, x.slot) <= orig + 3 * order.length);
+    if (used) continue;
+    const diff = Math.round((parseISO(day) - d) / 864e5);
+    const when = diff === 0 ? 'heute' : diff === 1 ? 'gestern' : DAYNAMES[(d.getDay() + 6) % 7];
+    return { dish, label: `${when} ${SLOTS[i][1]}` };
   }
   return null;
 }
