@@ -107,6 +107,15 @@
   .ing { display: grid; grid-template-columns: 62px 74px 1fr 40px 28px; gap: 5px; margin-bottom: 6px; align-items: center; }
   .ing .opt { border: 1px solid var(--line); background: var(--card); color: var(--muted); border-radius: 8px; height: 38px; font-size: 12px; font-weight: 600; padding: 0; }
   .ing .opt.on { background: var(--accent-soft); color: var(--accent); border-color: var(--accent); }
+  .leftover { font-size: 12px; font-weight: 700; color: var(--accent); background: var(--accent-soft); padding: 1px 7px; border-radius: 999px; margin-right: 4px; vertical-align: 1px; }
+  .leftover-sugg { display: flex; gap: 12px; align-items: center; width: 100%; text-align: left; border: 1px dashed var(--accent); background: var(--accent-soft); border-radius: 12px; padding: 12px 14px; margin-bottom: 12px; }
+  .leftover-sugg > span:first-child { font-size: 24px; }
+  .leftover-toggle { display: flex; gap: 12px; align-items: center; width: 100%; text-align: left; border: 1px solid var(--line); background: var(--card); border-radius: 12px; padding: 12px 14px; margin-top: 16px; }
+  .leftover-toggle .sw { flex: none; width: 44px; height: 26px; border-radius: 999px; background: var(--chip); position: relative; transition: background .15s; }
+  .leftover-toggle .sw::after { content: ""; position: absolute; top: 3px; left: 3px; width: 20px; height: 20px; border-radius: 50%; background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,.25); transition: left .15s; }
+  .leftover-toggle.on { border-color: var(--accent); }
+  .leftover-toggle.on .sw { background: var(--accent); }
+  .leftover-toggle.on .sw::after { left: 21px; }
   .inglist { margin: 0 4px; padding-left: 20px; }
   .inglist li { margin: 3px 0; }
   textarea.in { resize: vertical; font: inherit; }
@@ -184,8 +193,8 @@ const LocalStore = {
   async deleteDish(id) { ls.set('ep.dishes', ls.get('ep.dishes', []).filter(x => x.id !== id));
     const p = ls.get('ep.plan', {}); for (const k in p) if (p[k].dish_id === id) delete p[k]; ls.set('ep.plan', p); },
   async plan(from, to) { const p = ls.get('ep.plan', {}); return Object.values(p).filter(e => e.day >= from && e.day <= to); },
-  async setSlot(day, slot, dish_id, note) { const p = ls.get('ep.plan', {}); const k = day + '|' + slot;
-    if (!dish_id && !note) delete p[k]; else p[k] = { day, slot, dish_id: dish_id || null, note: note || '' }; ls.set('ep.plan', p); },
+  async setSlot(day, slot, dish_id, note, leftover = false) { const p = ls.get('ep.plan', {}); const k = day + '|' + slot;
+    if (!dish_id && !note) delete p[k]; else p[k] = { day, slot, dish_id: dish_id || null, note: note || '', leftover: !!(dish_id && leftover) }; ls.set('ep.plan', p); },
   async catalog() { return Object.values(ls.get('ep.catalog', {})); },
   async saveCatalog(entries) { const c = ls.get('ep.catalog', {}); for (const e of entries) c[e.kind + '|' + e.name_key] = e; ls.set('ep.catalog', c); },
   async saveDishes(arr) { const all = ls.get('ep.dishes', []); const m = new Map(all.map(d => [d.id, d])); for (const d of arr) m.set(d.id, d); ls.set('ep.dishes', [...m.values()]); },
@@ -209,10 +218,10 @@ const SupaStore = {
   async saveDish(d) { const { error } = await this.sb.from('dishes').upsert(d); if (error) throw error; return d; },
   async deleteDish(id) { const { error } = await this.sb.from('dishes').delete().eq('id', id); if (error) throw error; },
   async plan(from, to) { const { data, error } = await this.sb.from('plan').select('*').gte('day', from).lte('day', to); if (error) throw error; return data; },
-  async setSlot(day, slot, dish_id, note) {
+  async setSlot(day, slot, dish_id, note, leftover = false) {
     const q = (!dish_id && !note)
       ? this.sb.from('plan').delete().eq('day', day).eq('slot', slot)
-      : this.sb.from('plan').upsert({ day, slot, dish_id: dish_id || null, note: note || '' });
+      : this.sb.from('plan').upsert({ day, slot, dish_id: dish_id || null, note: note || '', leftover: !!(dish_id && leftover) });
     const { error } = await q; if (error) throw error;
   },
   async catalog() { const { data, error } = await this.sb.from('catalog').select('*'); if (error) throw error; return data; },
@@ -257,7 +266,7 @@ async function loadDishes() {
     for (const i of arr) { const k = (i.name || '').trim().toLowerCase(); if (k && !state.catalog[kind].has(k)) state.catalog[kind].set(k, { kind, name_key: k, name: i.name.trim(), unit: i.unit || '' }); }
 }
 async function loadPlan() {
-  const from = iso(state.week), to = iso(addDays(state.week, 6));
+  const from = iso(addDays(state.week, -3)), to = iso(addDays(state.week, 6));
   state.plan = {}; for (const e of await store.plan(from, to)) state.plan[e.day + '|' + e.slot] = e;
 }
 const dishById = id => state.dishes.find(d => d.id === id);
@@ -293,7 +302,7 @@ function viewWeek() {
     for (const [slot, label] of SLOTS) {
       const e = state.plan[key + '|' + slot]; const dish = e && dishById(e.dish_id);
       let what;
-      if (dish) what = `<span class="what">${esc(dish.name)}${dish.categories.length ? `<div class="cat">${esc(dish.categories.join(', '))}</div>` : ''}${e.note ? `<div class="cat note">📝 ${esc(e.note)}</div>` : ''}</span>`;
+      if (dish) what = `<span class="what">${e.leftover ? '<span class="leftover">🍱 Reste</span> ' : ''}${esc(dish.name)}${dish.categories.length && !e.leftover ? `<div class="cat">${esc(dish.categories.join(', '))}</div>` : ''}${e.note ? `<div class="cat note">📝 ${esc(e.note)}</div>` : ''}</span>`;
       else if (e && e.note) what = `<span class="what note">${esc(e.note)}</span>`;
       else what = `<span class="what empty">+ Gericht wählen</span>`;
       html += `<button class="slot" data-act="pick" data-day="${key}" data-slot="${slot}"><span class="when">${label}</span>${what}</button>`;
@@ -326,7 +335,9 @@ function fmtNum(n) { return Number.isInteger(n) ? String(n) : n.toLocaleString('
 function shoppingItems(field = 'ingredients') {
   // field: 'ingredients' (Pflicht-Zutaten), 'optional' (optionale Zutaten), 'spices'
   const map = new Map();
+  const wFrom = iso(state.week), wTo = iso(addDays(state.week, 6));
   for (const e of Object.values(state.plan)) {
+    if (e.leftover || e.day < wFrom || e.day > wTo) continue;
     const dish = dishById(e.dish_id); if (!dish) continue;
     const src = field === 'spices' ? dish.spices : dish.ingredients.filter(i => field === 'optional' ? i.optional : !i.optional);
     for (const ing of src) {
@@ -453,10 +464,27 @@ function slotDetailHtml(day, slot) {
       ${src}
       ${x.ingredients.length ? `<div class="group-title">Zutaten</div><ul class="inglist">${li(x.ingredients)}</ul>` : ''}
       ${x.spices.length ? `<div class="group-title">Gewürze</div><ul class="inglist">${li(x.spices)}</ul>` : ''}
+      <button class="leftover-toggle${e.leftover ? ' on' : ''}" data-act="toggleleftover"><span class="sw"></span><span><b>🍱 Reste</b><br><span class="hint" style="margin:0">${e.leftover ? 'Wird nicht eingekauft – schon an einem anderen Tag gekocht.' : 'Antippen, wenn das Gericht schon an einem anderen Tag gekocht wird.'}</span></span></button>
       <label class="f">Bemerkung</label><textarea class="in" id="plan-note" rows="2" placeholder="z. B. doppelte Portion, ohne Pilze">${esc(e.note || '')}</textarea>
       <button class="btn full" style="margin-top:18px" data-act="unpick">Gericht abwählen</button>
       <p class="hint">Die Bemerkung bleibt beim Abwählen erhalten.</p>
     </div></div>`;
+}
+
+// zuletzt gekochtes Gericht vor diesem Platz (max. 3 Tage zurück, keine Reste)
+function previousCooked(day, slot) {
+  const order = SLOTS.map(x => x[0]);
+  let d = parseISO(day), i = order.indexOf(slot);
+  for (let step = 0; step < 3 * order.length; step++) {
+    i--; if (i < 0) { i = order.length - 1; d = addDays(d, -1); }
+    const e = state.plan[iso(d) + '|' + order[i]]; const dish = e && !e.leftover && dishById(e.dish_id);
+    if (dish) {
+      const diff = Math.round((parseISO(day) - d) / 864e5);
+      const when = diff === 0 ? 'heute' : diff === 1 ? 'gestern' : DAYNAMES[(d.getDay() + 6) % 7];
+      return { dish, label: `${when} ${SLOTS[i][1]}` };
+    }
+  }
+  return null;
 }
 
 function pickerHtml(day, slot) {
@@ -464,7 +492,9 @@ function pickerHtml(day, slot) {
   const d = parseISO(day); const label = SLOTS.find(s => s[0] === slot)[1];
   picker.cat = null; picker.q = ''; picker.random = null;
   const chips = `<button class="chip" data-act="pickcat" data-cat="*">Alle</button>` + pickerCats().map(c => `<button class="chip" data-act="pickcat" data-cat="${esc(c)}">${esc(c)}</button>`).join('');
-  const body = `<div class="catchips" id="pick-cats">${chips}</div>
+  const prev = previousCooked(day, slot);
+  const sugg = prev ? `<button class="leftover-sugg" data-act="chooseleftover" data-id="${prev.dish.id}"><span>🍱</span><span><b>Reste von ${esc(prev.label)}</b><br>${esc(prev.dish.name)}</span></button>` : '';
+  const body = `${sugg}<div class="catchips" id="pick-cats">${chips}</div>
     <button class="btn full" style="margin-top:10px" data-act="random">🎲 Zufallsgericht</button>
     <div id="pick-list">${pickerListHtml(day, slot)}</div>`;
   return `<div class="sheet" data-day="${day}" data-slot="${slot}"><div class="sheet-head"><button data-act="close">Abbrechen</button><b>${DAYNAMES[(d.getDay() + 6) % 7]} · ${label}</b><button data-act="clearslot">Leeren</button></div>
@@ -676,12 +706,13 @@ document.addEventListener('click', async ev => {
       if (note) state.plan[day + '|' + slot] = { day, slot, dish_id: null, note }; else delete state.plan[day + '|' + slot];
       render(); return openSheet(pickerHtml(day, slot));
     }
-    case 'choose': case 'clearslot': case 'savenote': {
+    case 'choose': case 'chooseleftover': case 'clearslot': case 'savenote': {
       const sh = el.closest('.sheet'); const { day, slot } = sh.dataset;
-      const dish_id = act === 'choose' ? el.dataset.id : null;
+      const dish_id = (act === 'choose' || act === 'chooseleftover') ? el.dataset.id : null;
       const note = act === 'clearslot' ? '' : $('#pick-note').value.trim();
-      await guard(() => store.setSlot(day, slot, dish_id, note));
-      if (dish_id || note) state.plan[day + '|' + slot] = { day, slot, dish_id, note }; else delete state.plan[day + '|' + slot];
+      const leftover = act === 'chooseleftover';
+      await guard(() => store.setSlot(day, slot, dish_id, note, leftover));
+      if (dish_id || note) state.plan[day + '|' + slot] = { day, slot, dish_id, note, leftover }; else delete state.plan[day + '|' + slot];
       closeSheet(); return render();
     }
     case 'newdish': return openSheet(dishFormHtml());
@@ -711,6 +742,12 @@ document.addEventListener('click', async ev => {
     case 'csvimport': return $('#file-csv').click();
     case 'restore-merge': return applyRestore(false);
     case 'restore-replace': return applyRestore(true);
+    case 'toggleleftover': {
+      const sh = el.closest('.sheet'); const { day, slot } = sh.dataset; const ent = state.plan[day + '|' + slot]; if (!ent) return;
+      ent.leftover = !ent.leftover;
+      await guard(() => store.setSlot(day, slot, ent.dish_id, ent.note, ent.leftover));
+      render(); return openSheet(slotDetailHtml(day, slot));
+    }
     case 'togglecat': return el.classList.toggle('on');
     case 'pickcat': picker.cat = picker.cat === el.dataset.cat ? null : el.dataset.cat; return refreshPicker();
     case 'random': {
@@ -752,7 +789,7 @@ document.addEventListener('change', e => {
   if (e.target.id === 'recipe_self') $('#recipe-src').hidden = e.target.checked;
   if (e.target.id === 'plan-note') {
     const sh = e.target.closest('.sheet'); const { day, slot } = sh.dataset; const k = day + '|' + slot; const ent = state.plan[k];
-    if (ent) { ent.note = e.target.value.trim(); guard(() => store.setSlot(day, slot, ent.dish_id, ent.note)).then(() => { render(); toast('Bemerkung gespeichert'); }); }
+    if (ent) { ent.note = e.target.value.trim(); guard(() => store.setSlot(day, slot, ent.dish_id, ent.note, ent.leftover)).then(() => { render(); toast('Bemerkung gespeichert'); }); }
   }
   if (e.target.id === 'file-backup' && e.target.files[0]) { doRestore(e.target.files[0]); e.target.value = ''; }
   if (e.target.id === 'file-csv' && e.target.files[0]) { doCsvImport(e.target.files[0]); e.target.value = ''; }
