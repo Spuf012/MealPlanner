@@ -209,6 +209,7 @@ const LocalStore = {
     if (!dish_id && !note) delete p[k]; else p[k] = { day, slot, dish_id: dish_id || null, note: note || '', leftover: !!(dish_id && leftover), extra_ids: dish_id ? extra_ids : [], extra_texts: dish_id ? extra_texts : [] }; ls.set('ep.plan', p); },
   async catalog() { return Object.values(ls.get('ep.catalog', {})); },
   async saveCatalog(entries) { const c = ls.get('ep.catalog', {}); for (const e of entries) c[e.kind + '|' + e.name_key] = e; ls.set('ep.catalog', c); },
+  async deleteCatalog(kind, keys) { const c = ls.get('ep.catalog', {}); for (const k of keys) delete c[kind + '|' + k]; ls.set('ep.catalog', c); },
   async saveDishes(arr) { const all = ls.get('ep.dishes', []); const m = new Map(all.map(d => [d.id, d])); for (const d of arr) m.set(d.id, d); ls.set('ep.dishes', [...m.values()]); },
   async savePlan(arr) { const p = ls.get('ep.plan', {}); for (const e of arr) p[e.day + '|' + e.slot] = e; ls.set('ep.plan', p); },
   async deleteAll() { for (const k of ['ep.dishes', 'ep.plan', 'ep.catalog']) localStorage.removeItem(k); },
@@ -245,6 +246,7 @@ const SupaStore = {
   },
   async catalog() { const { data, error } = await this.sb.from('catalog').select('*'); if (error) throw error; return data; },
   async saveCatalog(entries) { if (!entries.length) return; const { error } = await this.sb.from('catalog').upsert(entries); if (error) throw error; },
+  async deleteCatalog(kind, keys) { if (!keys.length) return; const { error } = await this.sb.from('catalog').delete().eq('kind', kind).in('name_key', keys); if (error) throw error; },
   async saveDishes(arr) { for (let i = 0; i < arr.length; i += 200) { const { error } = await this.sb.from('dishes').upsert(arr.slice(i, i + 200)); if (error) throw error; } },
   async savePlan(arr) { for (let i = 0; i < arr.length; i += 500) { const { error } = await this.sb.from('plan').upsert(arr.slice(i, i + 500)); if (error) throw error; } },
   async deleteDishesAndPlan() {
@@ -286,9 +288,11 @@ async function loadDishes() {
   state.dishes = (await store.dishes()).map(normDish);
   state.catalog = { zutat: new Map(), gewuerz: new Map() };
   for (const e of await store.catalog()) state.catalog[e.kind]?.set(e.name_key, e);
-  // auch Zutaten aus vorhandenen Gerichten vorschlagen
+  // gelernte Zuordnung (Zutat oder Gewürz) aus dem gespeicherten Katalog – zuletzt gespeicherte Wahl gilt
+  state.learned = new Map(); for (const kind of ['zutat', 'gewuerz']) for (const k of state.catalog[kind].keys()) state.learned.set(k, kind);
+  // auch Zutaten aus vorhandenen Gerichten vorschlagen (ohne die gelernte Zuordnung zu überschreiben)
   for (const d of state.dishes) for (const [kind, arr] of [['zutat', d.ingredients], ['gewuerz', d.spices]])
-    for (const i of arr) { const k = (i.name || '').trim().toLowerCase(); if (k && !state.catalog[kind].has(k)) state.catalog[kind].set(k, { kind, name_key: k, name: i.name.trim(), unit: i.unit || '' }); }
+    for (const i of arr) { const k = (i.name || '').trim().toLowerCase(); if (k && !state.learned.has(k) && !state.catalog[kind].has(k)) state.catalog[kind].set(k, { kind, name_key: k, name: i.name.trim(), unit: i.unit || '' }); }
 }
 async function loadPlan() {
   const from = iso(addDays(state.week, -3)), to = iso(addDays(state.week, 6));
@@ -629,7 +633,7 @@ function dishFormHtml(d, fresh = false) {
   const spices = d.spices.length ? d.spices : [{}];
   return `<form class="sheet" id="dishform" data-id="${d.id}" data-new="${isNew ? 1 : 0}"><div class="sheet-head"><button type="button" data-act="close">Abbrechen</button><b>${isNew ? 'Neues Gericht' : 'Gericht bearbeiten'}</b><button type="submit">Sichern</button></div>
     <div class="sheet-body">
-      ${d._import ? `<div class="banner">🔗 Importiert von <b>${esc(d._import.host)}</b>${d._import.yield ? ` · ${esc(d._import.yield)}` : ''}<br>Bitte prüfen: Kategorien wählen, Zutaten/Gewürze und Mengen kontrollieren.${d._import.dupe ? '<br><b>Achtung:</b> Ein Gericht mit diesem Namen gibt es schon.' : ''}</div>` : ''}
+      ${d._import ? `<div class="banner">🔗 Importiert aus <b>${esc(d._import.host)}</b>${d._import.yield ? ` · ${esc(d._import.yield)}` : ''}<br>Bitte prüfen: Kategorien wählen, Zutaten/Gewürze und Mengen kontrollieren.${d._import.dupe ? '<br><b>Achtung:</b> Ein Gericht mit diesem Namen gibt es schon.' : ''}</div>` : ''}
       <label class="f">Name</label><input class="in" name="dname" required value="${esc(d.name)}" placeholder="z. B. Spaghetti Bolognese">
       <label class="f">Kategorien (mehrere möglich)</label><div id="catchips">${groups.map(([g, cs]) => `<div class="catgroup" data-group="${esc(g)}"${cs.length ? '' : ' hidden'}><div class="catlabel">${esc(g)}</div><div class="catchips">${cs.map(c => catChip(c, d.categories.includes(c))).join('')}</div></div>`).join('')}</div>
       <div class="addrow" style="margin-top:8px"><input class="in" id="newcat" placeholder="Neue Kategorie"><button type="button" class="btn" data-act="addcat">+</button></div>
@@ -738,8 +742,9 @@ function recipeToDish(r) {
     const parts = /^[a-zäöüß ]+ und [a-zäöüß ]+$/i.test(line) && line.split(' ').length <= 4 ? line.split(/ und /i) : [line];
     for (const part of parts) {
       const i = parseRecipeLine(part); if (!i.name || WATER_RE.test(i.name)) continue;
-      const asSpice = state.catalog?.gewuerz?.has(i.name.toLowerCase()) || PANTRY_RE.test(i.name)
-        || state.catalog?.gewuerz?.has(canonicalName(i.name, 'gewuerz').toLowerCase());
+      const learned = state.learned?.get(i.name.toLowerCase()) || state.learned?.get(canonicalName(i.name, 'gewuerz').toLowerCase())
+        || state.learned?.get(canonicalName(i.name, 'zutat').toLowerCase());
+      const asSpice = learned ? learned === 'gewuerz' : (state.catalog?.gewuerz?.has(i.name.toLowerCase()) || PANTRY_RE.test(i.name));
       const kind = asSpice ? 'gewuerz' : 'zutat';
       i.name = canonicalName(i.name, kind);
       const known = state.catalog?.[kind]?.get(i.name.toLowerCase());
@@ -755,12 +760,70 @@ function recipeToDish(r) {
   return normDish({ id: uid(), name: r.name || '', categories: [], ingredients, spices, instructions,
     recipe_url: r.url || '', recipe_self: false, role: 'main', _import: { host, yield: r.yield || '', dupe } });
 }
-function importSheetHtml(url = '') {
+function importSheetHtml(url = '', mode = 'link') {
+  const t = mode === 'text';
   return `<div class="sheet"><div class="sheet-head"><button data-act="close">Abbrechen</button><b>Rezept importieren</b><span style="width:60px"></span></div><div class="sheet-body">
-    <p class="hint" style="margin-top:0">Link zu einem Rezept einfügen (z. B. Chefkoch, Lecker, Blogs). Name, Zutaten und Zubereitung werden übernommen – danach kannst du alles prüfen und anpassen.</p>
-    <input class="in" id="import-url" type="url" inputmode="url" placeholder="https://…" value="${esc(url)}">
-    <button class="btn primary full" style="margin-top:12px" data-act="doimport">Importieren</button>
+    <div class="seg" style="margin-bottom:12px"><button type="button" class="${t ? '' : 'on'}" data-act="importmode" data-mode="link">Link</button><button type="button" class="${t ? 'on' : ''}" data-act="importmode" data-mode="text">Text einfügen</button></div>
+    <div id="import-link"${t ? ' hidden' : ''}>
+      <p class="hint" style="margin-top:0">Link zu einem Rezept einfügen (z. B. Chefkoch, Lecker, Blogs). Name, Zutaten und Zubereitung werden übernommen – danach kannst du alles prüfen und anpassen.</p>
+      <input class="in" id="import-url" type="url" inputmode="url" placeholder="https://…" value="${esc(url)}">
+      <button class="btn primary full" style="margin-top:12px" data-act="doimport">Importieren</button>
+    </div>
+    <div id="import-text"${t ? '' : ' hidden'}>
+      <p class="hint" style="margin-top:0">Für Seiten, die den Link-Import blockieren (z. B. REWE): Rezept auf der Website markieren, kopieren und hier einfügen – am besten ab dem Rezeptnamen bis zum Ende der Zubereitung.</p>
+      <textarea class="in" id="import-paste" rows="10" placeholder="Rezeptname&#10;&#10;Zutaten&#10;500 g Nudeln&#10;1 Zwiebel&#10;…&#10;&#10;Zubereitung&#10;1. …"></textarea>
+      <label class="f">Link zum Rezept (optional)</label><input class="in" id="import-texturl" type="url" inputmode="url" placeholder="https://…" value="${esc(url)}">
+      <button class="btn primary full" style="margin-top:12px" data-act="doimporttext">Übernehmen</button>
+    </div>
     <p class="hint" id="import-status"></p></div></div>`;
+}
+// eingefügten Rezepttext in Name, Zutaten und Schritte zerlegen
+const AMOUNT_ONLY_RE = /^(ca\.\s*)?[\d.,/½¼¾⅓⅔⅛]+(\s*[-–]\s*[\d.,/½¼¾⅓⅔⅛]+)?\s*([a-zäöüß.]{1,12})?$/i;
+// nur Menge (+ Einheit) ohne Zutat, z. B. „500 g“ oder „2“ – Zutat folgt in der nächsten Zeile
+const isAmountOnly = l => { const m = l.match(AMOUNT_ONLY_RE); if (!m) return false; const u = (m[3] || '').toLowerCase(); return !u || !!UNIT_MAP[u] || OTHER_UNITS.includes(u) || /^(stück|stk\.?)$/.test(u); };
+function parsePastedRecipe(text) {
+  const lines = String(text || '').replace(/\r/g, '').split('\n').map(l => l.replace(/[\u00a0\t]+/g, ' ').replace(/^[•·▪*\-–]\s+/, '').trim());
+  const isIngHead = l => /^(zutaten|einkaufsliste|du brauchst|das brauchst du)\b[^a-zäöüß]*(für.*)?:?$/i.test(l);
+  const isStepHead = l => /^(zubereitung|anleitung|so geht'?s|so wird'?s gemacht|schritte|zubereitungsschritte|arbeitsschritte|und so geht'?s)\b.*:?$/i.test(l) && l.length < 40;
+  const yieldRe = /(\d+)\s*(portionen|portion|personen|stück|stk\.?)\b/i;
+  let name = '', yld = '', ing = [], steps = [], sec = 'pre';
+  const nonEmpty = lines.filter(Boolean);
+  const hasHeads = nonEmpty.some(isIngHead);
+  for (let i = 0; i < nonEmpty.length; i++) {
+    let l = nonEmpty[i];
+    if (isIngHead(l)) { sec = 'ing'; const y = l.match(yieldRe); if (y) yld = `${y[1]} ${y[2]}`; continue; }
+    if (isStepHead(l)) { sec = 'steps'; continue; }
+    if (!yld && sec !== 'steps') { const y = l.match(yieldRe); if (y && l.length < 40 && !/^\d+\s*(stück|stk)/i.test(l)) { yld = `${y[1]} ${y[2]}`; continue; } }
+    if (sec === 'pre') {
+      if (!hasHeads && (AMOUNT_ONLY_RE.test(l.split(' ')[0]) || /^\d/.test(l)) && l.length < 60 && name) { sec = 'ing'; }
+      else { if (!name && l.length <= 90 && !/^(rezept|drucken|teilen|merken|bewertung|\d+ bewertungen)/i.test(l)) name = l; continue; }
+    }
+    if (sec === 'ing') {
+      if (!hasHeads && l.length > 70) { sec = 'steps'; }
+      else {
+        if (/:$/.test(l) && l.length < 40) continue;                 // Zwischenüberschrift „Für den Teig:“
+        if (/^(portionen?|personen|menge|anzahl)$/i.test(l)) continue;
+        if (isAmountOnly(l) && nonEmpty[i + 1] && !isStepHead(nonEmpty[i + 1])) { l = l + ' ' + nonEmpty[++i]; }  // „500 g“ / „Nudeln“ in zwei Zeilen
+        ing.push(l); continue;
+      }
+    }
+    if (sec === 'steps') {
+      if (/^(schritt\s*)?\d+[.)]?$/i.test(l)) continue;             // nur „Schritt 1“ / „1.“
+      const st = l.replace(/^(schritt\s*)?\d+[.):]\s*/i, '').trim();
+      if (st) steps.push(st);
+    }
+  }
+  return { name, ingredients: ing, steps, yield: yld };
+}
+function doImportText() {
+  const text = $('#import-paste').value, st = $('#import-status');
+  if (!text.trim()) return toast('Bitte zuerst den Rezepttext einfügen');
+  const r = parsePastedRecipe(text);
+  if (!r.ingredients.length && !r.steps.length) { if (st) st.innerHTML = '<span style="color:var(--danger)">Im Text wurden keine Zutaten erkannt. Steht eine Überschrift „Zutaten“ darüber?</span>'; return; }
+  let url = ($('#import-texturl').value || '').trim(); const m = url.match(/https?:\/\/\S+/); url = m ? m[0] : '';
+  const d = recipeToDish({ ...r, url });
+  d._import.host = d._import.host || 'eingefügtem Text';
+  openSheet(dishFormHtml(d, true));
 }
 async function doImport(url) {
   url = (url || '').trim(); const m = url.match(/https?:\/\/\S+/); if (m) url = m[0];
@@ -994,6 +1057,14 @@ document.addEventListener('click', async ev => {
       return $('#import-url').focus();
     }
     case 'doimport': return doImport($('#import-url').value);
+    case 'doimporttext': return doImportText();
+    case 'importmode': {
+      const t = el.dataset.mode === 'text';
+      dlg.querySelectorAll('[data-act=importmode]').forEach(b => b.classList.toggle('on', b === el));
+      $('#import-link').hidden = t; $('#import-text').hidden = !t;
+      if (t && !$('#import-texturl').value) $('#import-texturl').value = $('#import-url').value;
+      return (t ? $('#import-paste') : $('#import-url')).focus();
+    }
     case 'backup': return guard(doBackup);
     case 'deleteall': {
       if (!SHOW_DELETE_ALL) return;
@@ -1094,6 +1165,14 @@ document.addEventListener('submit', async e => {
   const uniq = [...new Map(entries.map(x => [x.kind + '|' + x.name_key, x])).values()];
   await guard(() => store.saveCatalog(uniq));
   for (const x of uniq) state.catalog[x.kind].set(x.name_key, x);
+  // Zuordnung lernen: was jetzt unter Gewürze steht, ist künftig kein Zutat-Eintrag mehr (und umgekehrt)
+  const keysOf = kind => uniq.filter(x => x.kind === kind).map(x => x.name_key);
+  const both = new Set(keysOf('zutat').filter(k => keysOf('gewuerz').includes(k)));
+  for (const [kind, other] of [['zutat', 'gewuerz'], ['gewuerz', 'zutat']]) {
+    const move = keysOf(kind).filter(k => !both.has(k) && state.catalog[other].has(k));
+    if (move.length) { await guard(() => store.deleteCatalog(other, move)); move.forEach(k => state.catalog[other].delete(k)); }
+    keysOf(kind).filter(k => !both.has(k)).forEach(k => state.learned?.set(k, kind));
+  }
   const i = state.dishes.findIndex(x => x.id === d.id); if (i >= 0) state.dishes[i] = d; else state.dishes.push(d);
   const after = dlg.dataset.after; delete dlg.dataset.after;
   const addmode = dlg.dataset.addmode; delete dlg.dataset.addmode;
