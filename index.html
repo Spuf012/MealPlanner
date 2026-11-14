@@ -185,6 +185,9 @@ const LocalStore = {
     if (!dish_id && !note) delete p[k]; else p[k] = { day, slot, dish_id: dish_id || null, note: note || '' }; ls.set('ep.plan', p); },
   async catalog() { return Object.values(ls.get('ep.catalog', {})); },
   async saveCatalog(entries) { const c = ls.get('ep.catalog', {}); for (const e of entries) c[e.kind + '|' + e.name_key] = e; ls.set('ep.catalog', c); },
+  async saveDishes(arr) { const all = ls.get('ep.dishes', []); const m = new Map(all.map(d => [d.id, d])); for (const d of arr) m.set(d.id, d); ls.set('ep.dishes', [...m.values()]); },
+  async savePlan(arr) { const p = ls.get('ep.plan', {}); for (const e of arr) p[e.day + '|' + e.slot] = e; ls.set('ep.plan', p); },
+  async deleteAll() { for (const k of ['ep.dishes', 'ep.plan', 'ep.catalog']) localStorage.removeItem(k); },
 };
 
 const SupaStore = {
@@ -211,6 +214,13 @@ const SupaStore = {
   },
   async catalog() { const { data, error } = await this.sb.from('catalog').select('*'); if (error) throw error; return data; },
   async saveCatalog(entries) { if (!entries.length) return; const { error } = await this.sb.from('catalog').upsert(entries); if (error) throw error; },
+  async saveDishes(arr) { for (let i = 0; i < arr.length; i += 200) { const { error } = await this.sb.from('dishes').upsert(arr.slice(i, i + 200)); if (error) throw error; } },
+  async savePlan(arr) { for (let i = 0; i < arr.length; i += 500) { const { error } = await this.sb.from('plan').upsert(arr.slice(i, i + 500)); if (error) throw error; } },
+  async deleteAll() {
+    for (const [t, q] of [['plan', x => x.gte('day', '1900-01-01')], ['dishes', x => x.not('id', 'is', null)], ['catalog', x => x.neq('kind', '')]]) {
+      const { error } = await q(this.sb.from(t).delete()); if (error) throw error;
+    }
+  },
 };
 
 const store = (CONFIG.SUPABASE_URL && CONFIG.SUPABASE_ANON_KEY) ? SupaStore : LocalStore;
@@ -493,8 +503,125 @@ function settingsHtml() {
     <label class="f">Name des Kurzbefehls für „An Erinnerungen senden“</label><input class="in" id="set-shortcut" value="${esc(settings.shortcut)}">
     <p class="hint">Der Kurzbefehl muss auf iPhone/iPad/Mac genau so heißen. Siehe Anleitung.</p>
     <p class="hint">Speichermodus: <b>${store.mode === 'cloud' ? 'Cloud (Supabase) – für die Familie geteilt' : 'Lokal (nur dieses Gerät)'}</b></p>
-    ${store.mode === 'cloud' ? '<button class="btn danger full" data-act="logout">Abmelden</button>' : ''}
+    <div class="group-title">Sicherung</div>
+    <p class="hint" style="margin-top:0">Speichert alle Gerichte, Wochenpläne und gespeicherten Zutaten in einer Datei – z. B. in iCloud Drive ablegen.</p>
+    <div class="actions" style="margin-top:6px"><button class="btn" data-act="backup">Sicherung speichern</button><button class="btn" data-act="restore">Sicherung laden</button></div>
+    <div class="group-title">Gerichte aus Tabelle (CSV)</div>
+    <p class="hint" style="margin-top:0">Vorlage in Excel/Numbers ausfüllen, als CSV speichern und hier einlesen. Gerichte mit gleichem Namen werden übersprungen.</p>
+    <div class="actions" style="margin-top:6px"><button class="btn" data-act="csvtemplate">Vorlage laden</button><button class="btn" data-act="csvimport">CSV einlesen</button></div>
+    <input type="file" id="file-backup" accept=".json,application/json" hidden>
+    <input type="file" id="file-csv" accept=".csv,text/csv,text/plain" hidden>
+    ${store.mode === 'cloud' ? '<button class="btn danger full" style="margin-top:18px" data-act="logout">Abmelden</button>' : ''}
   </div></div>`;
+}
+
+// ── Sicherung & CSV ────────────────────────────────────────
+function download(name, text, type) {
+  const blob = new Blob([text], { type }); const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 5000);
+}
+async function doBackup() {
+  const data = { app: 'essensplaner', version: 1, exported_at: new Date().toISOString(),
+    dishes: await store.dishes(), plan: await store.plan('1900-01-01', '2999-12-31'), catalog: await store.catalog() };
+  download(`Essensplaner-Sicherung-${iso(new Date())}.json`, JSON.stringify(data, null, 1), 'application/json');
+  toast(`Gesichert: ${data.dishes.length} Gerichte`);
+}
+async function doRestore(file) {
+  let data; try { data = JSON.parse(await file.text()); } catch { return toast('Datei ist keine gültige Sicherung'); }
+  if (data.app !== 'essensplaner' || !Array.isArray(data.dishes)) return toast('Datei ist keine Essensplaner-Sicherung');
+  restorePending = data;
+  openSheet(`<div class="sheet"><div class="sheet-head"><button data-act="close">Abbrechen</button><b>Sicherung laden</b><span></span></div><div class="sheet-body">
+    <p>Sicherung vom <b>${esc(new Date(data.exported_at).toLocaleString('de-DE'))}</b> mit <b>${data.dishes.length} Gerichten</b>.</p>
+    <button class="btn primary full" data-act="restore-merge">Ergänzen</button>
+    <p class="hint">Fehlende Gerichte kommen dazu, vorhandene werden auf den Stand der Sicherung gebracht. Nichts wird gelöscht.</p>
+    <button class="btn danger full" style="border:1px solid var(--danger)" data-act="restore-replace">Alles ersetzen</button>
+    <p class="hint">Löscht alle aktuellen Gerichte und Wochenpläne und spielt die Sicherung ein.</p></div></div>`);
+}
+let restorePending = null;
+async function applyRestore(replace) {
+  const data = restorePending; if (!data) return;
+  if (replace && !confirm('Wirklich alle aktuellen Gerichte und Wochenpläne löschen und durch die Sicherung ersetzen? Das lässt sich nicht rückgängig machen.')) return;
+  restorePending = null;
+  const dishes = data.dishes.map(normDish);
+  const ids = new Set(dishes.map(d => d.id));
+  const plan = (data.plan || []).filter(e => !e.dish_id || ids.has(e.dish_id) || state.dishes.some(d => d.id === e.dish_id));
+  await guard(async () => {
+    if (replace) await store.deleteAll();
+    await store.saveDishes(dishes); await store.savePlan(plan); await store.saveCatalog(data.catalog || []);
+    await loadDishes(); await loadPlan();
+    closeSheet(); render(); toast(`${dishes.length} Gerichte ${replace ? 'wiederhergestellt' : 'übernommen'}`);
+  });
+}
+
+const CSV_HEAD = ['Name', 'Kategorien', 'Zutaten', 'Gewürze', 'Rezeptbuch', 'Seite', 'Rezept-Link', 'Selbst erfasst'];
+function csvTemplate() {
+  const rows = [CSV_HEAD,
+    ['Spaghetti Bolognese', 'Pasta, Fleisch, Italienisch', '500 g Hackfleisch | 400 g Spaghetti | 1 Dose Tomaten | 1 Stk Zwiebel | 50 g Parmesan (optional)', '1 TL Oregano | 1 Prise Salz | Pfeffer', 'Kochbuch Oma', '45', '', 'nein'],
+    ['Gemüsesuppe', 'Suppe, Vegetarisch, Schnell', '1 kg Suppengemüse | 1 l Gemüsebrühe | 2 Stk Kartoffeln', 'Salz | Pfeffer | 1 Bund Petersilie (optional)', '', '', '', 'ja'],
+  ];
+  return '\ufeff' + rows.map(r => r.map(c => /[;"\n]/.test(c) ? '"' + c.replace(/"/g, '""') + '"' : c).join(';')).join('\r\n') + '\r\n';
+}
+function parseCSV(text) {
+  text = text.replace(/^\ufeff/, '');
+  const first = text.split(/\r?\n/)[0];
+  const delim = [';', '\t', ','].map(d => [d, first.split(d).length]).sort((a, b) => b[1] - a[1])[0][0];
+  const rows = []; let row = [], cell = '', q = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (q) { if (c === '"') { if (text[i + 1] === '"') { cell += '"'; i++; } else q = false; } else cell += c; }
+    else if (c === '"') q = true;
+    else if (c === delim) { row.push(cell); cell = ''; }
+    else if (c === '\n' || c === '\r') { if (c === '\r' && text[i + 1] === '\n') i++; row.push(cell); rows.push(row); row = []; cell = ''; }
+    else cell += c;
+  }
+  if (cell || row.length) { row.push(cell); rows.push(row); }
+  return rows.filter(r => r.some(c => c.trim()));
+}
+function parseIngredients(txt) {
+  const unitMap = new Map(UNITS.filter(Boolean).map(u => [u.toLowerCase(), u]));
+  for (const [a, b] of [['gramm', 'g'], ['stück', 'Stk'], ['stk.', 'Stk'], ['liter', 'l'], ['päckchen', 'Pck'], ['pck.', 'Pck'], ['dosen', 'Dose'], ['zehen', 'Zehe'], ['scheiben', 'Scheibe']]) unitMap.set(a, b);
+  return String(txt || '').split(/\s*[|\n]\s*/).map(x => x.trim()).filter(Boolean).map(x => {
+    let optional = false;
+    x = x.replace(/\s*\((optional|opt\.?)\)\s*$/i, () => { optional = true; return ''; }).trim();
+    const m = x.match(/^([\d.,/½¼¾]+)?\s*(\S+)?\s*(.*)$/);
+    let amount = '', unit = '', name = x;
+    if (m && m[1]) {
+      amount = m[1];
+      const u = unitMap.get((m[2] || '').toLowerCase());
+      if (u && m[3]) { unit = u; name = m[3]; } else name = [m[2], m[3]].filter(Boolean).join(' ');
+    }
+    return { amount, unit, name: name.trim(), optional };
+  }).filter(i => i.name);
+}
+async function doCsvImport(file) {
+  const rows = parseCSV(await file.text());
+  if (rows.length < 2) return toast('Keine Gerichte in der Datei gefunden');
+  const head = rows[0].map(h => h.trim().toLowerCase());
+  const col = name => head.indexOf(name.toLowerCase());
+  if (col('Name') < 0) return toast('Spalte „Name“ fehlt – bitte die Vorlage verwenden');
+  const get = (r, n) => { const i = col(n); return i >= 0 ? (r[i] || '').trim() : ''; };
+  const existing = new Set(state.dishes.map(d => d.name.trim().toLowerCase()));
+  const dishes = []; let skipped = 0;
+  for (const r of rows.slice(1)) {
+    const name = get(r, 'Name'); if (!name) continue;
+    if (existing.has(name.toLowerCase())) { skipped++; continue; }
+    existing.add(name.toLowerCase());
+    const self = /^(ja|j|x|yes|1|wahr|true)$/i.test(get(r, 'Selbst erfasst'));
+    const cats = [...new Set(get(r, 'Kategorien').split(/\s*[,|]\s*/).filter(Boolean))];
+    dishes.push(normDish({ id: uid(), name, categories: cats, category: cats[0] || '',
+      ingredients: parseIngredients(get(r, 'Zutaten')), spices: parseIngredients(get(r, 'Gewürze')), recipe_self: self,
+      recipe_book: self ? '' : get(r, 'Rezeptbuch'), recipe_page: self ? '' : get(r, 'Seite'), recipe_url: self ? '' : get(r, 'Rezept-Link') }));
+  }
+  if (!dishes.length) return toast(skipped ? `Alle ${skipped} Gerichte gibt es schon` : 'Keine Gerichte gefunden');
+  if (!confirm(`${dishes.length} neue Gerichte einlesen?${skipped ? `\n(${skipped} schon vorhanden – werden übersprungen)` : ''}`)) return;
+  const cat = [];
+  for (const d of dishes) for (const [kind, arr] of [['zutat', d.ingredients], ['gewuerz', d.spices]]) for (const i of arr) cat.push({ kind, name_key: i.name.toLowerCase(), name: i.name, unit: i.unit });
+  const uniq = [...new Map(cat.map(x => [x.kind + '|' + x.name_key, x])).values()];
+  await guard(async () => {
+    await store.saveDishes(dishes); await store.saveCatalog(uniq); await loadDishes();
+    closeSheet(); state.tab = 'gerichte'; render(); toast(`${dishes.length} Gerichte importiert`);
+  });
 }
 
 // ── Aktionen ───────────────────────────────────────────────
@@ -543,6 +670,12 @@ document.addEventListener('click', async ev => {
       const k = 'ep.spice.' + iso(state.week); const s = new Set(ls.get(k, []));
       s.has(el.dataset.key) ? s.delete(el.dataset.key) : s.add(el.dataset.key); ls.set(k, [...s]); return render();
     }
+    case 'backup': return guard(doBackup);
+    case 'restore': return $('#file-backup').click();
+    case 'csvtemplate': return download('Essensplaner-Vorlage.csv', csvTemplate(), 'text/csv;charset=utf-8');
+    case 'csvimport': return $('#file-csv').click();
+    case 'restore-merge': return applyRestore(false);
+    case 'restore-replace': return applyRestore(true);
     case 'togglecat': return el.classList.toggle('on');
     case 'pickcat': picker.cat = picker.cat === el.dataset.cat ? null : el.dataset.cat; return refreshPicker();
     case 'random': {
@@ -582,6 +715,8 @@ document.addEventListener('input', e => {
 // Checkbox "Rezept selbst erfasst" & Einheit aus gespeicherter Zutat übernehmen
 document.addEventListener('change', e => {
   if (e.target.id === 'recipe_self') $('#recipe-src').hidden = e.target.checked;
+  if (e.target.id === 'file-backup' && e.target.files[0]) { doRestore(e.target.files[0]); e.target.value = ''; }
+  if (e.target.id === 'file-csv' && e.target.files[0]) { doCsvImport(e.target.files[0]); e.target.value = ''; }
   if (e.target.name === 'name' && e.target.closest('.ing')) {
     const row = e.target.closest('.ing'); const unit = row.querySelector('[name=unit]');
     const hit = state.catalog?.[row.dataset.kind]?.get(e.target.value.trim().toLowerCase());
