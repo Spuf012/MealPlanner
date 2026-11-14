@@ -212,6 +212,7 @@ const LocalStore = {
   async saveDishes(arr) { const all = ls.get('ep.dishes', []); const m = new Map(all.map(d => [d.id, d])); for (const d of arr) m.set(d.id, d); ls.set('ep.dishes', [...m.values()]); },
   async savePlan(arr) { const p = ls.get('ep.plan', {}); for (const e of arr) p[e.day + '|' + e.slot] = e; ls.set('ep.plan', p); },
   async deleteAll() { for (const k of ['ep.dishes', 'ep.plan', 'ep.catalog']) localStorage.removeItem(k); },
+  async importRecipe() { throw new Error('Import geht nur mit der gemeinsamen Datenbank (nicht im Testmodus).'); },
   async deleteDishesAndPlan() { for (const k of ['ep.dishes', 'ep.plan']) localStorage.removeItem(k); },
 };
 
@@ -227,6 +228,11 @@ const SupaStore = {
   async session() { const { data } = await this.sb.auth.getSession(); return !!data.session; },
   async login(email, password) { const { error } = await this.sb.auth.signInWithPassword({ email, password }); if (error) throw error; },
   async logout() { await this.sb.auth.signOut(); },
+  async importRecipe(url) {
+    const { data, error } = await this.sb.functions.invoke('recipe-import', { body: { url } });
+    if (error) { let msg = error.message; try { msg = (await error.context.json()).error || msg; } catch {} throw new Error(msg); }
+    return data;
+  },
   async dishes() { const { data, error } = await this.sb.from('dishes').select('*').order('name'); if (error) throw error; return data; },
   async saveDish(d) { const { error } = await this.sb.from('dishes').upsert(d); if (error) throw error; return d; },
   async deleteDish(id) { const { error } = await this.sb.from('dishes').delete().eq('id', id); if (error) throw error; },
@@ -353,7 +359,7 @@ function viewDishes() {
     .filter(d => !state.cat || d.categories.includes(state.cat))
     .filter(d => !q || d.name.toLowerCase().includes(q) || [...d.ingredients, ...d.spices].some(i => (i.name || '').toLowerCase().includes(q)))
     .sort((a, b) => a.name.localeCompare(b.name, 'de'));
-  let html = `<div class="wrap"><header class="top"><h1>Gerichte</h1><button class="iconbtn primary" data-act="newdish">+ Neu</button></header>
+  let html = `<div class="wrap"><header class="top"><h1>Gerichte</h1><div style="display:flex;gap:8px"><button class="iconbtn" data-act="importlink" aria-label="Aus Link importieren">🔗 Import</button><button class="iconbtn primary" data-act="newdish">+ Neu</button></div></header>
     <input class="search" id="search" type="search" placeholder="Suchen (Name oder Zutat)" value="${esc(state.search)}">`;
   if (cats.length) html += `<div class="chips"><button class="chip${!state.cat ? ' on' : ''}" data-act="cat" data-cat="">Alle</button>${cats.map(c => `<button class="chip${state.cat === c ? ' on' : ''}" data-act="cat" data-cat="${esc(c)}">${esc(c)}</button>`).join('')}</div>`;
   if (!state.dishes.length) return html + `<div class="empty-state">Noch keine Gerichte.<br>Tippe auf „+ Neu“.</div></div>`;
@@ -614,8 +620,8 @@ function datalist(kind) {
 }
 function catChip(c, on) { return `<button type="button" class="chip${on ? ' on' : ''}" data-act="togglecat" data-cat="${esc(c)}">${esc(c)}</button>`; }
 
-function dishFormHtml(d) {
-  const isNew = !d;
+function dishFormHtml(d, fresh = false) {
+  const isNew = !d || fresh;
   d = d || normDish({ id: uid(), name: '' });
   const custom = [...new Set([...categories(), ...d.categories])].filter(c => !DEFAULT_CATS.includes(c));
   const groups = [...CAT_GROUPS, ['Eigene', custom]];
@@ -623,6 +629,7 @@ function dishFormHtml(d) {
   const spices = d.spices.length ? d.spices : [{}];
   return `<form class="sheet" id="dishform" data-id="${d.id}" data-new="${isNew ? 1 : 0}"><div class="sheet-head"><button type="button" data-act="close">Abbrechen</button><b>${isNew ? 'Neues Gericht' : 'Gericht bearbeiten'}</b><button type="submit">Sichern</button></div>
     <div class="sheet-body">
+      ${d._import ? `<div class="banner">🔗 Importiert von <b>${esc(d._import.host)}</b>${d._import.yield ? ` · ${esc(d._import.yield)}` : ''}<br>Bitte prüfen: Kategorien wählen, Zutaten/Gewürze und Mengen kontrollieren.${d._import.dupe ? '<br><b>Achtung:</b> Ein Gericht mit diesem Namen gibt es schon.' : ''}</div>` : ''}
       <label class="f">Name</label><input class="in" name="dname" required value="${esc(d.name)}" placeholder="z. B. Spaghetti Bolognese">
       <label class="f">Kategorien (mehrere möglich)</label><div id="catchips">${groups.map(([g, cs]) => `<div class="catgroup" data-group="${esc(g)}"${cs.length ? '' : ' hidden'}><div class="catlabel">${esc(g)}</div><div class="catchips">${cs.map(c => catChip(c, d.categories.includes(c))).join('')}</div></div>`).join('')}</div>
       <div class="addrow" style="margin-top:8px"><input class="in" id="newcat" placeholder="Neue Kategorie"><button type="button" class="btn" data-act="addcat">+</button></div>
@@ -673,6 +680,101 @@ function settingsHtml() {
     <p class="hint">Löscht alle Gerichte, Wochenpläne und gespeicherten Zutaten/Gewürze für alle Familienmitglieder. Vorher am besten eine Sicherung speichern.</p>` : ''}
     ${store.mode === 'cloud' ? '<button class="btn danger full" style="margin-top:18px" data-act="logout">Abmelden</button>' : ''}
   </div></div>`;
+}
+
+// ── Rezept-Import aus dem Internet ─────────────────────────
+const UNIT_MAP = {
+  'g': 'g', 'gr': 'g', 'gr.': 'g', 'gramm': 'g', 'kg': 'kg', 'kilo': 'kg', 'kilogramm': 'kg',
+  'ml': 'ml', 'milliliter': 'ml', 'l': 'l', 'liter': 'l', 'cl': 'cl',
+  'el': 'EL', 'el.': 'EL', 'esslöffel': 'EL', 'essl.': 'EL', 'tl': 'TL', 'tl.': 'TL', 'teelöffel': 'TL',
+  'prise': 'Prise', 'prisen': 'Prise', 'pck': 'Pck', 'pck.': 'Pck', 'päckchen': 'Pck', 'packung': 'Pck', 'packungen': 'Pck', 'pkt.': 'Pck', 'pkt': 'Pck',
+  'dose': 'Dose', 'dosen': 'Dose', 'bund': 'Bund', 'zehe': 'Zehe', 'zehen': 'Zehe', 'scheibe': 'Scheibe', 'scheiben': 'Scheibe',
+  'stk': 'Stk', 'stk.': 'Stk', 'stück': 'Stk',
+};
+const OTHER_UNITS = ['becher', 'glas', 'gläser', 'tasse', 'tassen', 'msp', 'msp.', 'messerspitze', 'handvoll', 'schuss', 'spritzer', 'kopf', 'köpfe', 'stange', 'stangen', 'zweig', 'zweige', 'blatt', 'blätter', 'würfel', 'tüte', 'tüten', 'beutel', 'flasche', 'knolle', 'knollen', 'stiel', 'stiele', 'tropfen', 'tube'];
+// typische Vorratsartikel → Gewürze/Vorrat (siehe Erfassungsregeln)
+const PANTRY_RE = /^(salz|meersalz|pfeffer|.*pfeffer$|.*salz$|.*öl$|öl|.*essig|essig|zucker|puderzucker|brauner zucker|mehl|weizenmehl|butter|.*brühe|brühe|.*bouillon|sojasoße|sojasauce|.*senf|senf|tomatenmark|.*pulver|.*gewürz|gewürz.*|paprika edelsüß|paprika rosenscharf|curry|oregano|thymian|rosmarin|majoran|kreuzkümmel|kümmel|zimt|muskat|muskatnuss|chiliflocken|cayennepfeffer|lorbeerblatt|lorbeerblätter|lorbeer|backpulver|natron|speisestärke|stärke|maisstärke|soßenbinder|saucenbinder|honig|zitronensaft|weißwein|rotwein|vanillezucker|kurkuma|ingwerpulver|italienische kräuter|kräuter der provence|.*kräuter, getrocknet|crema di balsamico|worcestershiresauce)$/i;
+const WATER_RE = /^(wasser|warmes wasser|kaltes wasser|heißes wasser|lauwarmes wasser|leitungswasser)$/i;
+
+function numFromText(t) {
+  const fr = { '½': '.5', '¼': '.25', '¾': '.75', '⅓': '.33', '⅔': '.67', '⅛': '.125' };
+  t = t.replace(/(\d)?\s*([½¼¾⅓⅔⅛])/g, (_, d, f) => (d || '0') + fr[f]);
+  const m = t.match(/^(\d+)\s*\/\s*(\d+)$/); if (m) return String(+(m[1] / m[2]).toFixed(2)).replace('.', ',');
+  return t.replace('.', ',');
+}
+function canonicalName(name, kind) {
+  const cat = state.catalog?.[kind]; const k = name.toLowerCase();
+  for (const c of [k, k.replace(/n$/, ''), k.replace(/en$/, ''), k.replace(/e$/, ''), k.replace(/s$/, '')]) {
+    if (cat?.has(c)) return cat.get(c).name;
+  }
+  return name;
+}
+function parseRecipeLine(line) {
+  let t = line.replace(/\s+/g, ' ').trim();
+  let optional = false;
+  t = t.replace(/\s*\((optional|nach belieben|n\. ?b\.)\)\s*/gi, () => { optional = true; return ' '; }).trim();
+  if (/\b(nach belieben|evtl\.|eventuell|optional)\b/i.test(t)) { optional = true; t = t.replace(/,?\s*\b(nach belieben|evtl\.|eventuell|optional)\b/gi, '').trim(); }
+  t = t.replace(/^(ca\.|circa|etwa|etwas|einige|ein paar|wenig|reichlich)(?=\s|$)\s*/i, '');
+  const m = t.match(/^([\d.,/½¼¾⅓⅔⅛]+(?:\s*[-–]\s*[\d.,/½¼¾⅓⅔⅛]+)?)\s*([^\s\d]+)?\s*(.*)$/);
+  let amount = '', unit = '', name = t;
+  if (m) {
+    amount = m[1].includes('-') || m[1].includes('–') ? m[1].replace(/\s/g, '') : numFromText(m[1].replace(/\s/g, ''));
+    let w = (m[2] || ''), rest = m[3] || '';
+    const lw = w.toLowerCase();
+    if (UNIT_MAP[lw] && rest) { unit = UNIT_MAP[lw]; name = rest; }
+    else if (OTHER_UNITS.includes(lw) && rest) { unit = 'Stk'; name = `${rest} (${w.replace(/\.$/, '')})`; }
+    else { name = [w, rest].filter(Boolean).join(' '); }
+    if (unit === 'cl') { amount = String(+(parseFloat(amount.replace(',', '.')) * 10) || amount).replace('.', ','); unit = 'ml'; }
+  }
+  // „500g“ zusammengeschrieben
+  const g = amount === '' && t.match(/^(\d+(?:[.,]\d+)?)(g|kg|ml|l)\s+(.*)$/i);
+  if (g) { amount = g[1].replace('.', ','); unit = UNIT_MAP[g[2].toLowerCase()]; name = g[3]; }
+  name = name.replace(/\(n\)|\(s\)|\(e\)|\(en\)/g, '').replace(/\s*,.*$/, '').replace(/\s+/g, ' ').trim();
+  return { amount, unit, name, optional };
+}
+function recipeToDish(r) {
+  const ingredients = [], spices = [];
+  for (const line of r.ingredients || []) {
+    const parts = /^[a-zäöüß ]+ und [a-zäöüß ]+$/i.test(line) && line.split(' ').length <= 4 ? line.split(/ und /i) : [line];
+    for (const part of parts) {
+      const i = parseRecipeLine(part); if (!i.name || WATER_RE.test(i.name)) continue;
+      const asSpice = state.catalog?.gewuerz?.has(i.name.toLowerCase()) || PANTRY_RE.test(i.name)
+        || state.catalog?.gewuerz?.has(canonicalName(i.name, 'gewuerz').toLowerCase());
+      const kind = asSpice ? 'gewuerz' : 'zutat';
+      i.name = canonicalName(i.name, kind);
+      const known = state.catalog?.[kind]?.get(i.name.toLowerCase());
+      if (!i.unit && i.amount && known?.unit) i.unit = known.unit;
+      (asSpice ? spices : ingredients).push(i);
+    }
+  }
+  const steps = (r.steps || []).filter(Boolean);
+  let n = 0;
+  const instructions = steps.map(s => /^– .* –$/.test(s) ? `\n${s.replace(/^– | –$/g, '')}:` : `${++n}. ${s}`).join('\n').trim();
+  const host = (() => { try { return new URL(r.url).hostname.replace(/^www\./, ''); } catch { return ''; } })();
+  const dupe = state.dishes.some(d => d.name.trim().toLowerCase() === (r.name || '').trim().toLowerCase());
+  return normDish({ id: uid(), name: r.name || '', categories: [], ingredients, spices, instructions,
+    recipe_url: r.url || '', recipe_self: false, role: 'main', _import: { host, yield: r.yield || '', dupe } });
+}
+function importSheetHtml(url = '') {
+  return `<div class="sheet"><div class="sheet-head"><button data-act="close">Abbrechen</button><b>Rezept importieren</b><span style="width:60px"></span></div><div class="sheet-body">
+    <p class="hint" style="margin-top:0">Link zu einem Rezept einfügen (z. B. Chefkoch, Lecker, Blogs). Name, Zutaten und Zubereitung werden übernommen – danach kannst du alles prüfen und anpassen.</p>
+    <input class="in" id="import-url" type="url" inputmode="url" placeholder="https://…" value="${esc(url)}">
+    <button class="btn primary full" style="margin-top:12px" data-act="doimport">Importieren</button>
+    <p class="hint" id="import-status"></p></div></div>`;
+}
+async function doImport(url) {
+  url = (url || '').trim(); const m = url.match(/https?:\/\/\S+/); if (m) url = m[0];
+  if (!url) return toast('Bitte einen Link einfügen');
+  const st = $('#import-status'); if (st) st.textContent = 'Lade Rezept …';
+  const btn = dlg.querySelector('[data-act=doimport]'); if (btn) btn.disabled = true;
+  try {
+    const r = await store.importRecipe(url);
+    if (!r.ingredients?.length && !r.steps?.length) throw new Error('Auf der Seite wurden keine Zutaten gefunden.');
+    openSheet(dishFormHtml(recipeToDish(r), true));
+  } catch (e) {
+    if (st) st.innerHTML = `<span style="color:var(--danger)">${esc(e.message || e)}</span>`;
+    if (btn) btn.disabled = false;
+  }
 }
 
 // ── Sicherung & CSV ────────────────────────────────────────
@@ -886,6 +988,12 @@ document.addEventListener('click', async ev => {
       const k = 'ep.spice.' + iso(state.week); const s = new Set(ls.get(k, []));
       s.has(el.dataset.key) ? s.delete(el.dataset.key) : s.add(el.dataset.key); ls.set(k, [...s]); return render();
     }
+    case 'importlink': {
+      openSheet(importSheetHtml());
+      try { const t = await navigator.clipboard.readText(); if (/^https?:\/\//.test(t.trim())) $('#import-url').value = t.trim(); } catch {}
+      return $('#import-url').focus();
+    }
+    case 'doimport': return doImport($('#import-url').value);
     case 'backup': return guard(doBackup);
     case 'deleteall': {
       if (!SHOW_DELETE_ALL) return;
@@ -960,6 +1068,7 @@ document.addEventListener('change', e => {
   }
 });
 document.addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.id === 'newcat') { e.preventDefault(); addCat(); }
+  if (e.key === 'Enter' && e.target.id === 'import-url') { e.preventDefault(); doImport(e.target.value); }
   if (e.key === 'Enter' && e.target.id === 'pick-text') { e.preventDefault(); $('[data-act=addtext]').click(); } });
 
 document.addEventListener('submit', async e => {
@@ -1023,6 +1132,12 @@ async function start() {
   $('#app').innerHTML = `<div class="empty-state">Lade …</div>`;
   await guard(async () => { await loadDishes(); await loadPlan(); });
   render();
+  // Import per Link (z. B. aus dem iPhone-Teilen-Menü): …/?import=https://…
+  const imp = new URLSearchParams(location.search).get('import');
+  if (imp) {
+    history.replaceState(null, '', location.pathname);
+    state.tab = 'gerichte'; render(); openSheet(importSheetHtml(imp)); doImport(imp);
+  }
 }
 start();
 </script>
