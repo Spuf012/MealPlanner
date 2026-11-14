@@ -293,9 +293,8 @@ function viewWeek() {
     for (const [slot, label] of SLOTS) {
       const e = state.plan[key + '|' + slot]; const dish = e && dishById(e.dish_id);
       let what;
-      if (dish) what = `<span class="what">${esc(dish.name)}${dish.categories.length ? `<div class="cat">${esc(dish.categories.join(', '))}</div>` : ''}</span>`;
+      if (dish) what = `<span class="what">${esc(dish.name)}${dish.categories.length ? `<div class="cat">${esc(dish.categories.join(', '))}</div>` : ''}${e.note ? `<div class="cat note">📝 ${esc(e.note)}</div>` : ''}</span>`;
       else if (e && e.note) what = `<span class="what note">${esc(e.note)}</span>`;
-      if (dish && e.note) what = what.replace(/<\/span>$/, `<div class="cat note">📝 ${esc(e.note)}</div></span>`);
       else what = `<span class="what empty">+ Gericht wählen</span>`;
       html += `<button class="slot" data-act="pick" data-day="${key}" data-slot="${slot}"><span class="when">${label}</span>${what}</button>`;
     }
