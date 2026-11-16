@@ -182,11 +182,13 @@
   <button data-tab="woche"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="3" y="5" width="18" height="16" rx="3"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>Woche</button>
   <button data-tab="gerichte"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 13h16a8 8 0 0 1-16 0zM12 5v3M8 6l1 2M16 6l-1 2"/></svg>Gerichte</button>
   <button data-tab="einkauf"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 4h2l2.4 11.2a2 2 0 0 0 2 1.6h7.7a2 2 0 0 0 2-1.5L21 8H6.2"/><circle cx="10" cy="20.5" r="1"/><circle cx="17" cy="20.5" r="1"/></svg>Einkauf</button>
+  <button data-tab="angebote"><!-- TEST-ANGEBOTE --><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12l-8 8-9-9V3h8z"/><circle cx="7.5" cy="7.5" r="1.5"/></svg>Angebote</button>
 </nav>
 <dialog id="dlg"></dialog>
 <div class="toast" id="toast"></div>
 
 <script type="module">
+import { viewAngebote } from './angebote-test.js'; // TEST-ANGEBOTE
 // ─────────────────────────────────────────────────────────────
 // KONFIGURATION – nach dem Anlegen des Supabase-Projekts ausfüllen.
 // Leer lassen = lokaler Testmodus (Daten nur auf diesem Gerät).
@@ -355,6 +357,7 @@ function render() {
   const app = $('#app');
   if (state.tab === 'woche') app.innerHTML = viewWeek();
   else if (state.tab === 'gerichte') app.innerHTML = viewDishes();
+  else if (state.tab === 'angebote') app.innerHTML = viewAngebote(state.dishes, esc); // TEST-ANGEBOTE
   else app.innerHTML = viewShopping();
 }
 
