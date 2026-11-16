@@ -142,6 +142,38 @@
   .banner { background: var(--accent-soft); border-radius: 12px; padding: 10px 14px; font-size: 13px; margin-bottom: 14px; }
   .addrow { display: flex; gap: 8px; margin-top: 12px; }
   .addrow .in { flex: 1; }
+  #print-root { display: none; }
+  @media print {
+    @page { size: A4; margin: 16mm 15mm; }
+    html, body { padding: 0 !important; margin: 0 !important; background: #fff !important; }
+    body > *:not(#print-root), dialog, dialog::backdrop { display: none !important; }
+    #print-root { display: block; color: #1d1d1f; font: 11pt/1.45 -apple-system, "Helvetica Neue", Arial, sans-serif; }
+    #print-root * { color: #1d1d1f; }
+    .pr-cover { text-align: center; padding-top: 70mm; }
+    .pr-cover h1 { font-size: 30pt; margin: 0 0 6mm; }
+    .pr-cover p { color: #555 !important; }
+    .pr-toc { break-before: page; }
+    .pr-toc h2 { font-size: 16pt; margin: 0 0 4mm; }
+    .pr-toc ol { columns: 2; column-gap: 10mm; padding-left: 7mm; margin: 0; }
+    .pr-toc li { margin: 0 0 1.5mm; break-inside: avoid; }
+    .pr-recipe { break-before: page; }
+    .pr-recipe:first-child { break-before: auto; }
+    .pr-num { font-size: 9pt; color: #777 !important; text-transform: uppercase; letter-spacing: .06em; }
+    .pr-recipe h1 { font-size: 22pt; margin: 1mm 0 2mm; line-height: 1.15; }
+    .pr-meta { color: #555 !important; font-size: 10pt; margin-bottom: 5mm; }
+    .pr-meta span + span::before { content: " · "; }
+    .pr-cols { display: grid; grid-template-columns: 62mm 1fr; gap: 9mm; }
+    .pr-recipe h2 { font-size: 12pt; margin: 0 0 2mm; padding-bottom: 1mm; border-bottom: 1.5px solid #2f7d4f; }
+    .pr-ing { list-style: none; padding: 0; margin: 0 0 6mm; }
+    .pr-ing li { padding: 1mm 0; border-bottom: 0.5px solid #ddd; break-inside: avoid; }
+    .pr-ing b { display: inline-block; min-width: 17mm; font-weight: 600; }
+    .pr-opt { color: #777 !important; font-size: 9pt; }
+    .pr-steps { padding-left: 6mm; margin: 0; }
+    .pr-steps li { margin: 0 0 2.5mm; break-inside: avoid; }
+    .pr-text { white-space: pre-wrap; margin: 0; }
+    .pr-src { margin-top: 6mm; font-size: 9pt; color: #555 !important; word-break: break-all; }
+    .pr-note { font-size: 10pt; color: #555 !important; font-style: italic; }
+  }
 </style>
 </head>
 <body>
@@ -166,7 +198,7 @@ const CONFIG = {
 
 // Test-Funktion „Alle Gerichte löschen“ in den Einstellungen – später auf false setzen
 const SHOW_DELETE_ALL = true;
-const APP_VERSION = '2026-11-14.7';
+const APP_VERSION = '2026-11-16.1';
 const SLOTS = [['mittag', 'Mittag'], ['abend', 'Abend']];
 const UNITS = ['', 'g', 'kg', 'ml', 'l', 'Stk', 'EL', 'TL', 'Prise', 'Pck', 'Dose', 'Bund', 'Zehe', 'Scheibe'];
 const CAT_GROUPS = [
@@ -357,13 +389,16 @@ function viewWeek() {
   return html + `</div>`;
 }
 
-function viewDishes() {
-  const cats = categories();
+function filteredDishes() {
   const q = state.search.trim().toLowerCase();
-  const list = state.dishes
+  return state.dishes
     .filter(d => !state.cat || d.categories.includes(state.cat))
     .filter(d => !q || d.name.toLowerCase().includes(q) || [...d.ingredients, ...d.spices].some(i => (i.name || '').toLowerCase().includes(q)))
     .sort((a, b) => a.name.localeCompare(b.name, 'de'));
+}
+function viewDishes() {
+  const cats = categories();
+  const list = filteredDishes();
   let html = `<div class="wrap"><header class="top"><h1>Gerichte</h1><div style="display:flex;gap:8px"><button class="iconbtn" data-act="importlink" aria-label="Aus Link importieren">🔗 Import</button><button class="iconbtn primary" data-act="newdish">+ Neu</button></div></header>
     <input class="search" id="search" type="search" placeholder="Suchen (Name oder Zutat)" value="${esc(state.search)}">`;
   if (cats.length) html += `<div class="chips"><button class="chip${!state.cat ? ' on' : ''}" data-act="cat" data-cat="">Alle</button>${groupedCats(cats).flatMap(([, cs]) => cs).map(c => `<button class="chip${state.cat === c ? ' on' : ''}" data-act="cat" data-cat="${esc(c)}">${esc(c)}</button>`).join('')}</div>`;
@@ -371,7 +406,9 @@ function viewDishes() {
   if (!list.length) return html + `<div class="empty-state">Nichts gefunden.</div></div>`;
   html += `<div class="list">` + list.map(d => `<button class="row" data-act="editdish" data-id="${d.id}"><div class="main"><div>${esc(d.name)}</div>
     <div class="sub">${esc([d.categories.join(', '), d.ingredients.map(i => i.name).filter(Boolean).join(', ')].filter(Boolean).join(' · ')) || '&nbsp;'}</div></div>${(d.recipe_self || d.recipe_url || d.recipe_book) ? '<span title="Rezept vorhanden">📖</span>' : ''}</button>`).join('') + `</div>`;
-  return html + `<p class="hint">${state.dishes.length} Gerichte</p></div>`;
+  const filtered = list.length !== state.dishes.length;
+  html += `<button class="btn full" style="margin-top:14px" data-act="pdfbook">📄 ${filtered ? `Auswahl als PDF (${list.length} Gerichte)` : 'Kochbuch als PDF'}</button>`;
+  return html + `<p class="hint">${state.dishes.length} Gerichte${filtered ? ' · der PDF-Export nimmt die aktuelle Suche/Kategorie' : ''}</p></div>`;
 }
 
 // Einkaufsliste aus dem Wochenplan zusammenrechnen
@@ -565,7 +602,8 @@ function slotDetailHtml(day, slot) {
     <div class="sheet-body">
       ${all.map(x => dishBlockHtml(x, multi || (e.extra_texts || []).length > 0)).join('')}
       ${(e.extra_texts || []).map((t, i) => `<section class="dishblock"><div class="dishhead"><h2>${esc(t)}</h2><button class="rm" data-act="removetext" data-i="${i}" aria-label="${esc(t)} entfernen">×</button></div><div class="hint" style="margin-top:0">Freitext</div></section>`).join('')}
-      <button class="btn full" style="margin-top:4px" data-act="adddish">+ Weiteres Gericht hinzufügen (Soße, Beilage …)</button>
+      <button class="btn full" style="margin-top:4px" data-act="pdfslot">📄 ${all.length > 1 ? 'Rezepte' : 'Rezept'} als PDF / Drucken</button>
+      <button class="btn full" style="margin-top:8px" data-act="adddish">+ Weiteres Gericht hinzufügen (Soße, Beilage …)</button>
       <button class="leftover-toggle${e.leftover ? ' on' : ''}" data-act="toggleleftover"><span class="sw"></span><span><b>🍱 Reste</b><br><span class="hint" style="margin:0">${e.leftover ? 'Wird nicht eingekauft – schon an einem anderen Tag gekocht.' : 'Antippen, wenn das schon an einem anderen Tag gekocht wird.'}</span></span></button>
       <label class="f">Bemerkung</label><textarea class="in" id="plan-note" rows="2" placeholder="z. B. doppelte Portion, ohne Pilze">${esc(e.note || '')}</textarea>
       <button class="btn full" style="margin-top:18px" data-act="unpick">${multi ? 'Alle Gerichte abwählen' : 'Gericht abwählen'}</button>
@@ -667,7 +705,8 @@ function dishFormHtml(d, fresh = false) {
         <label class="f">Rezept-Link (optional, z. B. iCloud-Freigabelink zum PDF)</label><input class="in" name="recipe_url" type="url" value="${esc(d.recipe_url)}" placeholder="https://…">
         ${d.recipe_url ? `<p class="hint"><a href="${esc(d.recipe_url)}" target="_blank" rel="noopener">Rezept öffnen ↗</a></p>` : ''}
       </div>
-      ${isNew ? '' : '<button type="button" class="btn danger full" style="margin-top:18px" data-act="deldish">Gericht löschen</button>'}
+      ${isNew ? '' : `<button type="button" class="btn full" style="margin-top:18px" data-act="pdfdish" data-id="${d.id}">📄 Als PDF / Drucken</button>`}
+      ${isNew ? '' : '<button type="button" class="btn danger full" style="margin-top:10px" data-act="deldish">Gericht löschen</button>'}
     </div></form>`;
 }
 function addCat() {
@@ -906,6 +945,59 @@ async function doImport(url) {
   }
 }
 
+// ── PDF-Export (über die Druckfunktion: „Als PDF sichern“ / Teilen) ──
+const ROLE_LABEL = { main: '', base: 'Grundrezept', side: 'Ergänzung' };
+function recipePrintHtml(d, num) {
+  const amt = i => [i.amount, i.unit].filter(Boolean).join(' ');
+  const items = arr => arr.map(i => `<li><b>${esc(amt(i))}</b>${esc(i.name)}${i.optional ? ' <span class="pr-opt">(optional)</span>' : ''}</li>`).join('');
+  // Zubereitung: nummerierte Zeilen als Liste, sonst als Text
+  const lines = (d.instructions || '').split('\n').map(x => x.trim()).filter(Boolean);
+  const numbered = lines.length > 1 && lines.filter(x => /^\d+[.)]\s/.test(x)).length >= lines.length * 0.6;
+  const steps = !lines.length ? '' : numbered
+    ? `<ol class="pr-steps">${lines.map(x => /^\d+[.)]\s/.test(x) ? `<li>${esc(x.replace(/^\d+[.)]\s*/, ''))}</li>` : `</ol><p><b>${esc(x)}</b></p><ol class="pr-steps">`).join('')}</ol>`
+    : `<p class="pr-text">${esc(d.instructions)}</p>`;
+  const meta = [d.categories.join(', '), ROLE_LABEL[d.role] && (d.role === 'base' && d.needs.length ? `Grundrezept – braucht ${d.needs.join(', ')}` : ROLE_LABEL[d.role])].filter(Boolean);
+  const src = [d.recipe_book && `Quelle: ${d.recipe_book}${d.recipe_page ? `, Seite ${d.recipe_page}` : ''}`, d.recipe_url && `Online: ${d.recipe_url}`].filter(Boolean);
+  return `<section class="pr-recipe">
+    ${num ? `<div class="pr-num">Rezept ${num}</div>` : ''}
+    <h1>${esc(d.name)}</h1>
+    ${meta.length ? `<div class="pr-meta">${meta.map(m => `<span>${esc(m)}</span>`).join('')}</div>` : ''}
+    <div class="pr-cols">
+      <div>
+        ${d.ingredients.length ? `<h2>Zutaten</h2><ul class="pr-ing">${items(d.ingredients)}</ul>` : ''}
+        ${d.spices.length ? `<h2>Gewürze & Vorrat</h2><ul class="pr-ing">${items(d.spices)}</ul>` : ''}
+      </div>
+      <div>
+        <h2>Zubereitung</h2>
+        ${steps || `<p class="pr-note">${d.recipe_book || d.recipe_url ? 'Siehe Quelle unten.' : 'Keine Zubereitung hinterlegt.'}</p>`}
+      </div>
+    </div>
+    ${src.length ? `<div class="pr-src">${src.map(esc).join('<br>')}</div>` : ''}
+  </section>`;
+}
+function printDishes(dishes, { book = false, title = '' } = {}) {
+  if (!dishes.length) return toast('Keine Gerichte zum Exportieren');
+  let html = '';
+  if (book) {
+    const date = new Date().toLocaleDateString('de-DE', { day: 'numeric', month: 'long', year: 'numeric' });
+    html += `<div class="pr-cover"><h1>${esc(title || 'Unser Kochbuch')}</h1><p>${dishes.length} Rezepte · Stand ${esc(date)}</p></div>
+      <div class="pr-toc"><h2>Inhalt</h2><ol>${dishes.map(d => `<li>${esc(d.name)}</li>`).join('')}</ol></div>`;
+    html += dishes.map((d, i) => recipePrintHtml(d, i + 1)).join('').replace('<section class="pr-recipe">', '<section class="pr-recipe" style="break-before:page">');
+  } else {
+    html += dishes.map(d => recipePrintHtml(d)).join('');
+  }
+  let root = document.getElementById('print-root');
+  if (!root) { root = document.createElement('div'); root.id = 'print-root'; document.body.appendChild(root); }
+  root.innerHTML = html;
+  const oldTitle = document.title;
+  document.title = book ? (title || 'Kochbuch') : dishes.map(d => d.name).join(' + ');   // wird zum Dateinamen des PDFs
+  // offenes Fenster während des Druckens schließen und danach wieder öffnen
+  const reopen = dlg.open ? dlg.innerHTML : null; if (reopen) dlg.close();
+  const done = () => { document.title = oldTitle; root.innerHTML = ''; window.removeEventListener('afterprint', done); if (reopen && !dlg.open) { dlg.innerHTML = reopen; dlg.showModal(); } };
+  window.addEventListener('afterprint', done);
+  setTimeout(() => window.print(), 50);
+}
+
 // ── Sicherung & CSV ────────────────────────────────────────
 function download(name, text, type) {
   const blob = new Blob([text], { type }); const url = URL.createObjectURL(blob);
@@ -1129,6 +1221,13 @@ document.addEventListener('click', async ev => {
       $('#import-link').hidden = t; $('#import-text').hidden = !t;
       if (t && !$('#import-texturl').value) $('#import-texturl').value = $('#import-url').value;
       return (t ? $('#import-paste') : $('#import-url')).focus();
+    }
+    case 'pdfdish': { const d = dishById(el.dataset.id); return d && printDishes([d]); }
+    case 'pdfslot': { const sh = el.closest('.sheet'); return printDishes(entryDishes(state.plan[sh.dataset.day + '|' + sh.dataset.slot])); }
+    case 'pdfbook': {
+      const list = filteredDishes();
+      const title = state.cat ? `Kochbuch – ${state.cat}` : state.search.trim() ? `Kochbuch – „${state.search.trim()}“` : 'Unser Kochbuch';
+      return printDishes(list, { book: true, title });
     }
     case 'backup': return guard(doBackup);
     case 'deleteall': {
