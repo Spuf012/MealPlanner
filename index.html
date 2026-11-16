@@ -148,6 +148,27 @@
   .banner { background: var(--accent-soft); border-radius: 12px; padding: 10px 14px; font-size: 13px; margin-bottom: 14px; }
   .addrow { display: flex; gap: 8px; margin-top: 12px; }
   .addrow .in { flex: 1; }
+  .hm-card { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 14px; margin-bottom: 10px; }
+  .hm-head { display: flex; align-items: baseline; gap: 10px; }
+  .hm-head b { flex: 1; font-size: 17px; cursor: pointer; }
+  .hm-meta { font-size: 13px; color: var(--muted); margin: 2px 0 8px; }
+  .hm-foot { display: flex; align-items: flex-end; gap: 8px; }
+  .hm-chips { flex: 1; display: flex; flex-wrap: wrap; gap: 6px; }
+  .hm-chip { border-radius: 999px; padding: 3px 10px; font-size: 13px; font-weight: 600; background: var(--accent-soft); color: var(--accent); }
+  .hm-chip.miss { background: transparent; border: 1px dashed var(--muted); color: var(--muted); font-weight: 500; }
+  .hm-chip.opt { opacity: .6; }
+  .hm-add { flex: none; border: 0; background: var(--chip); border-radius: 999px; padding: 5px 11px; font-size: 13px; font-weight: 600; color: var(--accent); }
+  .hm-pick { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 6px; }
+  .hm-pick .chip { margin: 0; }
+  .hm-sel { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 10px; }
+  .hm-sel .chip::after { content: " ✕"; font-size: 11px; opacity: .8; }
+  .hm-slots { display: grid; grid-template-columns: auto 1fr 1fr; gap: 6px; align-items: center; }
+  .hm-slots .d { font-size: 14px; font-weight: 600; padding-right: 6px; }
+  .hm-slots .d span { display: block; font-size: 12px; color: var(--muted); font-weight: 400; }
+  .hm-slot { border: 1px solid var(--line); background: var(--card); border-radius: 10px; padding: 8px; min-height: 44px; font-size: 13px; text-align: left; }
+  .hm-slot.busy { color: var(--muted); background: var(--chip); }
+  .hm-slot.free { border-color: var(--accent); color: var(--accent); font-weight: 600; }
+  .hm-slots .past { opacity: .45; }
   #print-root { display: none; }
   @media print {
     @page { size: A4; margin: 16mm 15mm; }
@@ -188,13 +209,12 @@
   <button data-tab="woche"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="3" y="5" width="18" height="16" rx="3"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>Woche</button>
   <button data-tab="gerichte"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 13h16a8 8 0 0 1-16 0zM12 5v3M8 6l1 2M16 6l-1 2"/></svg>Gerichte</button>
   <button data-tab="einkauf"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 4h2l2.4 11.2a2 2 0 0 0 2 1.6h7.7a2 2 0 0 0 2-1.5L21 8H6.2"/><circle cx="10" cy="20.5" r="1"/><circle cx="17" cy="20.5" r="1"/></svg>Einkauf</button>
-  <button data-tab="angebote"><!-- TEST-ANGEBOTE --><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12l-8 8-9-9V3h8z"/><circle cx="7.5" cy="7.5" r="1.5"/></svg>Angebote</button>
+  <button data-tab="vorrat"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="2.5" width="14" height="19" rx="2.5"/><path d="M5 10h14M8.5 6v1.5M8.5 13v3"/></svg>Zu Hause</button>
 </nav>
 <dialog id="dlg"></dialog>
 <div class="toast" id="toast"></div>
 
 <script type="module">
-import { viewAngebote, planSheetAngebote } from './angebote-test.js?v=3'; // TEST-ANGEBOTE (bei Änderungen v erhöhen)
 // ─────────────────────────────────────────────────────────────
 // KONFIGURATION – nach dem Anlegen des Supabase-Projekts ausfüllen.
 // Leer lassen = lokaler Testmodus (Daten nur auf diesem Gerät).
@@ -312,6 +332,8 @@ const state = {
   plan: {},           // 'YYYY-MM-DD|slot' → {day, slot, dish_id, note}
   search: '',
   cat: '',
+  have: [],         // „Zu Hause“: was gerade da ist (wird nicht gespeichert)
+  homeQ: '',
 };
 const settings = Object.assign({ shortcut: 'Einkaufsliste' }, ls.get('ep.settings', {}));
 
@@ -363,7 +385,7 @@ function render() {
   const app = $('#app');
   if (state.tab === 'woche') app.innerHTML = viewWeek();
   else if (state.tab === 'gerichte') app.innerHTML = viewDishes();
-  else if (state.tab === 'angebote') app.innerHTML = viewAngebote(state.dishes, esc, state.angFilter || 'match'); // TEST-ANGEBOTE
+  else if (state.tab === 'vorrat') app.innerHTML = viewHome();
   else app.innerHTML = viewShopping();
 }
 
@@ -427,6 +449,86 @@ function viewDishes() {
   const filtered = list.length !== state.dishes.length;
   html += `<button class="btn full" style="margin-top:14px" data-act="pdfbook">📄 ${filtered ? `Auswahl als PDF (${list.length} Gerichte)` : 'Kochbuch als PDF'}</button>`;
   return html + `<p class="hint">${state.dishes.length} Gerichte${filtered ? ' · der PDF-Export nimmt die aktuelle Suche/Kategorie' : ''}</p></div>`;
+}
+
+// ── „Zu Hause“: Was kann ich mit dem kochen, was da ist? ─────
+// Vergleich über Wortstämme: „Zwiebel“ passt zu „Zwiebeln“, „rote Zwiebel“, „Zwiebel, groß“, „Gemüsezwiebel“.
+const HM_SKIP = new Set(['groß', 'große', 'großer', 'klein', 'kleine', 'kleiner', 'frisch', 'frische', 'frischer', 'tk', 'gefroren']);
+const hmStem = w => w.replace(/(en|n|e|s)$/, '');
+const hmWords = s => String(s || '').toLowerCase().split(',')[0].replace(/[()]/g, ' ').split(/\s+/).filter(w => w && !HM_SKIP.has(w)).map(hmStem).filter(w => w.length > 1);
+const hmLabel = s => { const w = String(s || '').split(',')[0].trim().split(/\s+/).filter(x => !HM_SKIP.has(x.toLowerCase())).join(' '); return w ? w[0].toUpperCase() + w.slice(1) : ''; };
+function hmHas(ingName, have) {
+  // „Sahne oder Kokosmilch“ → eine Alternative reicht
+  return String(ingName).split(/\s+oder\s+/i).some(alt => {
+    const iw = hmWords(alt); if (!iw.length) return false;
+    return have.some(h => { const hw = hmWords(h); return hw.length && hw.every(x => iw.some(w => w === x || (x.length >= 4 && (w.endsWith(x) || x.endsWith(w) && w.length >= 4)))); });
+  });
+}
+function homeIngredients() {
+  const map = new Map();
+  for (const d of state.dishes) for (const i of d.ingredients) {
+    const label = hmLabel(i.name); if (!label) continue;
+    const k = hmWords(label).join(' '); const e = map.get(k) || { label, n: 0 }; e.n++; map.set(k, e);
+  }
+  return [...map.values()].sort((a, b) => b.n - a.n || a.label.localeCompare(b.label, 'de'));
+}
+function homeResults() {
+  const have = state.have;
+  return state.dishes.map(d => {
+    const ings = d.ingredients.filter(i => i.name);
+    const req = ings.filter(i => !i.optional), opt = ings.filter(i => i.optional);
+    const got = req.filter(i => hmHas(i.name, have)), miss = req.filter(i => !hmHas(i.name, have));
+    const optGot = opt.filter(i => hmHas(i.name, have));
+    return { d, req, got, miss, opt, optGot };
+  }).filter(r => r.got.length || r.optGot.length)
+    .sort((a, b) => a.miss.length - b.miss.length || (b.got.length / (b.req.length || 1)) - (a.got.length / (a.req.length || 1)) || b.got.length - a.got.length);
+}
+function viewHome() {
+  const q = state.homeQ.trim().toLowerCase();
+  const selKeys = new Set(state.have.map(h => hmWords(h).join(' ')));
+  const all = homeIngredients().filter(x => !selKeys.has(hmWords(x.label).join(' ')));
+  const shown = q ? all.filter(x => x.label.toLowerCase().includes(q)) : all.slice(0, 24);
+  let html = `<div class="wrap"><header class="top"><h1>Zu Hause</h1>${state.have.length ? '<button class="iconbtn" data-act="home-clear">Leeren</button>' : ''}</header>
+    <input class="search" id="home-search" type="search" enterkeyhint="done" autocomplete="off" placeholder="Zutat suchen oder eingeben …" value="${esc(state.homeQ)}">`;
+  if (state.have.length) html += `<div class="hm-sel">${state.have.map((h, i) => `<button class="chip on" data-act="home-del" data-i="${i}">${esc(h)}</button>`).join('')}</div>`;
+  html += `<div class="hm-pick">${shown.map(x => `<button class="chip" data-act="home-add" data-v="${esc(x.label)}">${esc(x.label)}</button>`).join('')}
+    ${q && !all.some(x => x.label.toLowerCase() === q) ? `<button class="chip" data-act="home-add" data-v="${esc(state.homeQ.trim())}">+ „${esc(state.homeQ.trim())}“</button>` : ''}</div>`;
+  if (!q && all.length > shown.length) html += `<p class="hint" style="margin-top:0">Häufigste Zutaten – tippe zum Suchen, um weitere zu finden.</p>`;
+  if (!state.have.length) return html + `<div class="empty-state">Tippe an, was du zu Hause hast.<br>Gewürze und Vorrat zählen automatisch als vorhanden.</div></div>`;
+  const res = homeResults();
+  if (!res.length) return html + `<div class="empty-state">Kein Gericht passt zu diesen Zutaten.</div></div>`;
+  const card = r => `<div class="hm-card"><div class="hm-head"><b data-act="editdish" data-id="${r.d.id}">${esc(r.d.name)}</b></div>
+    <div class="hm-meta">${r.miss.length ? `${r.got.length} von ${r.req.length} Zutaten da` : 'Alles da'}${r.optGot.length ? ` · +${r.optGot.length} optional` : ''}</div>
+    <div class="hm-foot"><div class="hm-chips">${r.got.map(i => `<span class="hm-chip">${esc(i.name)}</span>`).join('')}${r.optGot.map(i => `<span class="hm-chip opt">${esc(i.name)}</span>`).join('')}${r.miss.map(i => `<span class="hm-chip miss">fehlt: ${esc(i.name)}</span>`).join('')}</div>
+    <button class="hm-add" data-act="home-plan" data-id="${r.d.id}">+ Plan</button></div></div>`;
+  const groups = [['Alles da', r => !r.miss.length], ['Fehlt 1 Zutat', r => r.miss.length === 1], ['Fehlt 2 Zutaten', r => r.miss.length === 2]];
+  for (const [t, f] of groups) { const l = res.filter(f); if (l.length) html += `<div class="group-title">${t} (${l.length})</div>` + l.map(card).join(''); }
+  const rest = res.filter(r => r.miss.length > 2);
+  if (rest.length) html += `<details><summary>Fehlen mehr Zutaten (${rest.length})</summary>${rest.map(card).join('')}</details>`;
+  return html + `</div>`;
+}
+function homeAdd(v) {
+  v = String(v || '').trim(); if (!v) return;
+  const k = hmWords(v).join(' ');
+  if (!state.have.some(h => hmWords(h).join(' ') === k)) state.have.push(hmLabel(v) || v);
+  state.homeQ = ''; render();
+  const s = $('#home-search'); if (s && matchMedia('(pointer:fine)').matches) s.focus();
+}
+// Platz im Wochenplan wählen (aktuell angezeigte Woche)
+function planPickHtml(dish) {
+  const today = iso(new Date());
+  let rows = '';
+  for (let i = 0; i < 7; i++) {
+    const d = addDays(state.week, i), day = iso(d), past = day < today;
+    rows += `<div class="d${past ? ' past' : ''}">${DAYNAMES[i].slice(0, 2)}<span>${fmtShort(d)}</span></div>` + ['mittag', 'abend'].map(slot => {
+      const names = entryNames(state.plan[day + '|' + slot]);
+      return names.length ? `<div class="hm-slot busy${past ? ' past' : ''}">${esc(names.join(', '))}</div>`
+        : `<button class="hm-slot free${past ? ' past' : ''}" data-act="home-slot" data-day="${day}" data-slot="${slot}" data-id="${dish.id}">+ ${slot === 'mittag' ? 'Mittag' : 'Abend'}</button>`;
+    }).join('');
+  }
+  return `<div class="sheet"><div class="sheet-head"><span style="width:60px"></span><b>${esc(dish.name)}</b><button data-act="close">Fertig</button></div>
+    <div class="sheet-body"><p class="hint" style="margin-top:0">KW ${weekNo(state.week)} – freien Platz wählen:</p>
+    <div class="hm-slots"><span></span><div class="hint" style="margin:0">Mittag</div><div class="hint" style="margin:0">Abend</div>${rows}</div></div></div>`;
 }
 
 // Einkaufsliste aus dem Wochenplan zusammenrechnen
@@ -1202,15 +1304,15 @@ document.addEventListener('click', async ev => {
       if (act === 'choose') return afterChoose(day, slot, false);
       closeSheet(); return render();
     }
-    // TEST-ANGEBOTE (Start)
-    case 'ang-filter': state.angFilter = el.dataset.f; return render();
-    case 'ang-plan': return openSheet(planSheetAngebote(dishById(el.dataset.id), { esc, week: state.week, plan: state.plan, entryNames, iso, addDays, fmtShort, DAYNAMES }));
-    case 'ang-slot': {
+    case 'home-add': return homeAdd(el.dataset.v);
+    case 'home-del': state.have.splice(Number(el.dataset.i), 1); return render();
+    case 'home-clear': state.have = []; state.homeQ = ''; return render();
+    case 'home-plan': return openSheet(planPickHtml(dishById(el.dataset.id)));
+    case 'home-slot': {
       const { day, slot, id } = el.dataset;
       await saveEntry({ day, slot, dish_id: id, note: '', leftover: false, extra_ids: [], extra_texts: [] });
       toast(`${dishById(id).name} eingeplant`); return afterChoose(day, slot, false);
     }
-    // TEST-ANGEBOTE (Ende)
     case 'newdish': delete dlg.dataset.after; delete dlg.dataset.addmode; return openSheet(dishFormHtml());
     case 'newdish-from-pick': { const sh = el.closest('.sheet'); dlg.dataset.after = sh.dataset.day + '|' + sh.dataset.slot; if (sh.dataset.add) dlg.dataset.addmode = '1'; return openSheet(dishFormHtml()); }
     case 'editdish': return openSheet(dishFormHtml(dishById(el.dataset.id)));
@@ -1305,10 +1407,12 @@ function addExtra() {
   render(); $('#extra').focus();
 }
 
+document.addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.id === 'home-search') { e.preventDefault(); const v = e.target.value.trim(); const m = homeIngredients().find(x => x.label.toLowerCase().includes(v.toLowerCase())); homeAdd(m && v ? m.label : v); } });
 document.addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.id === 'extra') { e.preventDefault(); addExtra(); }
   if (e.key === 'Enter' && e.target.id === 'pick-note') { e.preventDefault(); $('[data-act=savenote]').click(); } });
 
 document.addEventListener('input', e => {
+  if (e.target.id === 'home-search') { state.homeQ = e.target.value; const pos = e.target.selectionStart; render(); const s = $('#home-search'); s.focus(); s.setSelectionRange(pos, pos); return; }
   if (e.target.id === 'search') { state.search = e.target.value; const pos = e.target.selectionStart; render(); const s = $('#search'); s.focus(); s.setSelectionRange(pos, pos); }
   if (e.target.id === 'set-shortcut') { settings.shortcut = e.target.value.trim() || 'Einkaufsliste'; ls.set('ep.settings', settings); }
   if (e.target.id === 'pick-search') { picker.q = e.target.value; refreshPicker(); }
