@@ -188,7 +188,7 @@
 <div class="toast" id="toast"></div>
 
 <script type="module">
-import { viewAngebote } from './angebote-test.js'; // TEST-ANGEBOTE
+import { viewAngebote, planSheetAngebote } from './angebote-test.js'; // TEST-ANGEBOTE
 // ─────────────────────────────────────────────────────────────
 // KONFIGURATION – nach dem Anlegen des Supabase-Projekts ausfüllen.
 // Leer lassen = lokaler Testmodus (Daten nur auf diesem Gerät).
@@ -357,7 +357,7 @@ function render() {
   const app = $('#app');
   if (state.tab === 'woche') app.innerHTML = viewWeek();
   else if (state.tab === 'gerichte') app.innerHTML = viewDishes();
-  else if (state.tab === 'angebote') app.innerHTML = viewAngebote(state.dishes, esc); // TEST-ANGEBOTE
+  else if (state.tab === 'angebote') app.innerHTML = viewAngebote(state.dishes, esc, state.angFilter || 'match'); // TEST-ANGEBOTE
   else app.innerHTML = viewShopping();
 }
 
@@ -1187,6 +1187,15 @@ document.addEventListener('click', async ev => {
       if (act === 'choose') return afterChoose(day, slot, false);
       closeSheet(); return render();
     }
+    // TEST-ANGEBOTE (Start)
+    case 'ang-filter': state.angFilter = el.dataset.f; return render();
+    case 'ang-plan': return openSheet(planSheetAngebote(dishById(el.dataset.id), { esc, week: state.week, plan: state.plan, entryNames, iso, addDays, fmtShort, DAYNAMES }));
+    case 'ang-slot': {
+      const { day, slot, id } = el.dataset;
+      await saveEntry({ day, slot, dish_id: id, note: '', leftover: false, extra_ids: [], extra_texts: [] });
+      toast(`${dishById(id).name} eingeplant`); return afterChoose(day, slot, false);
+    }
+    // TEST-ANGEBOTE (Ende)
     case 'newdish': delete dlg.dataset.after; delete dlg.dataset.addmode; return openSheet(dishFormHtml());
     case 'newdish-from-pick': { const sh = el.closest('.sheet'); dlg.dataset.after = sh.dataset.day + '|' + sh.dataset.slot; if (sh.dataset.add) dlg.dataset.addmode = '1'; return openSheet(dishFormHtml()); }
     case 'editdish': return openSheet(dishFormHtml(dishById(el.dataset.id)));

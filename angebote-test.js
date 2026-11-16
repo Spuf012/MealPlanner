@@ -90,7 +90,7 @@ const MATCH = {
   'Avocado »Hass«': [/^avocado/],
   'Aubergine': [/^aubergine/],
   'Frisches Hähnchen-Innenbrustfilet': [/^hähnchenbrust/],
-  'Theke: Garnelen gegart': [/^garnelen/],
+  'Theke: Garnelen gegart': [/^garnelen$/],
   'Costa Pacific Prawns (TK)': [/^garnelen/],
   'Landliebe Butter': [/^butter$/],
   'Tante Fanny Flammkuchenteig': [/^flammkuchenteig/],
@@ -102,7 +102,6 @@ const NEAR = {
   'Frisches Puten-Geschnetzeltes': [[/^hähnchengeschnetzeltes/, 'Pute statt Hähnchen']],
   'Bratpaprika': [[/paprika/, 'Bratpaprika statt rote Paprika']],
   'Bio Speisekartoffeln Drillinge (festkochend)': [[/kartoffeln/, 'festkochend statt mehlig']],
-  'Rama Cremefine 100 % pflanzlich': [[/^sahne/, 'pflanzlicher Sahne-Ersatz']],
   'Billie Green vegane Fleischalternative': [[/^veganes hack/, 'vegane Alternative, kein Hack']],
 };
 
@@ -135,33 +134,89 @@ function scoreDish(d) {
   return { d, hits, near, req, reqHits, cost, share: reqHits / req };
 }
 
-export function viewAngebote(dishes, esc) {
-  const scored = dishes.map(scoreDish).filter(s => s.hits.length)
+const CSS = `
+.ang-card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:14px;margin-bottom:10px}
+.ang-head{display:flex;align-items:baseline;gap:10px}
+.ang-head b{flex:1;font-size:17px;cursor:pointer}
+.ang-price{font-weight:700;font-size:17px;white-space:nowrap}
+.ang-meta{font-size:13px;color:var(--muted);margin:2px 0 10px}
+.ang-chips{display:flex;flex-wrap:wrap;gap:6px}
+.ang-chip{background:var(--accent-soft);color:var(--accent);border-radius:999px;padding:4px 10px;font-size:13px;font-weight:600}
+.ang-chip small{font-weight:500;opacity:.85}
+.ang-chip.near{background:transparent;border:1px dashed var(--muted);color:var(--muted)}
+.ang-chip.warn small{color:var(--danger);font-weight:700;opacity:1}
+.ang-add{flex:none;border:0;background:var(--chip);border-radius:999px;padding:5px 11px;font-size:13px;font-weight:600;color:var(--accent)}
+.ang-foot{display:flex;align-items:flex-end;gap:8px}.ang-foot .ang-chips{flex:1}
+.ang-row{display:flex;align-items:center;gap:10px;padding:10px 14px;border-top:1px solid var(--line)}
+.ang-row:first-child{border-top:0}
+.ang-row .main{flex:1;min-width:0}
+.ang-row .sub{font-size:13px;color:var(--muted)}
+.ang-fit{display:inline-block;font-size:11px;font-weight:700;color:var(--accent);background:var(--accent-soft);border-radius:999px;padding:1px 7px;margin-left:6px;vertical-align:1px}
+.ang-slots{display:grid;grid-template-columns:auto 1fr 1fr;gap:6px;align-items:center}
+.ang-slots .d{font-size:14px;font-weight:600;padding-right:6px}
+.ang-slots .d span{display:block;font-size:12px;color:var(--muted);font-weight:400}
+.ang-slot{border:1px solid var(--line);background:var(--card);border-radius:10px;padding:8px;min-height:44px;font-size:13px;text-align:left}
+.ang-slot.busy{color:var(--muted);background:var(--chip)}
+.ang-slot.free{border-color:var(--accent);color:var(--accent);font-weight:600}
+.ang-slots .past{opacity:.45}
+`;
+function ensureCss() { if (!document.getElementById('ang-css')) { const st = document.createElement('style'); st.id = 'ang-css'; st.textContent = CSS; document.head.appendChild(st); } }
+
+const chip = (label, o, esc, cls = '') => `<span class="ang-chip ${cls}${o.note ? ' warn' : ''}">${esc(label)}${o.note ? ` <small>${esc(o.note)}</small>` : ''}</span>`;
+
+export function viewAngebote(dishes, esc, filter = 'match') {
+  ensureCss();
+  const all = dishes.map(scoreDish);
+  const scored = all.filter(s => s.hits.length)
     .sort((a, b) => (b.reqHits - a.reqHits) || (b.share - a.share) || (b.hits.length - a.hits.length));
-  const usedNames = new Set(scored.flatMap(s => s.hits.map(h => h.o.name)));
-  const nearOnly = dishes.map(scoreDish).filter(s => !s.hits.length && s.near.length);
+  const nearOnly = all.filter(s => !s.hits.length && s.near.length);
+  const fits = new Map();
+  for (const s of all) for (const h of [...s.hits, ...s.near]) fits.set(h.o.name, (fits.get(h.o.name) || 0) + 1);
 
-  let html = `<div class="wrap"><header class="top"><h1>Angebote <span style="font-size:13px;color:var(--danger);vertical-align:middle">TEST</span></h1></header>
-    <div class="banner">${esc(ANGEBOTE_STAND.markt)} · 16.11.–22.11.<br>Testdaten, einmalig abgerufen – werden nicht aktualisiert.</div>`;
+  let html = `<div class="wrap"><header class="top"><h1>Angebote</h1><span class="ang-chip" style="background:var(--chip);color:var(--danger)">TEST</span></header>
+    <p class="hint" style="margin-top:-6px">REWE Center Im Dammwald · gültig 16.–22.11.</p>`;
 
-  html += `<div class="group-title">Vorschläge aus deinen Gerichten (${scored.length})</div><div class="list">` +
-    scored.map(s => `<button class="row" data-act="editdish" data-id="${s.d.id}"><div class="main">
-      <div>${esc(s.d.name)} <span class="opt-tag">${s.reqHits}/${s.req} Zutaten</span></div>
-      <div class="sub" style="white-space:normal">${s.hits.map(h => `${esc(h.ing.name)}${h.ing.optional ? ' (opt.)' : ''} → ${esc(h.o.name)}${h.q > 1 ? ` ×${h.q}` : ''} ${eur(h.o.price)}${h.o.note ? ` <b>(${esc(h.o.note)})</b>` : ''}`).join('<br>')}
-      ${s.near.map(n => `<br><i>≈ ${esc(n.ing.name)} → ${esc(n.o.name)} (${esc(n.why)})</i>`).join('')}</div></div>
-      <b style="flex:none">${eur(s.cost)}</b></button>`).join('') + `</div>
-    <p class="hint">Betrag = Summe der Angebotsartikel (eine Packung je Zutat, Stückware × Menge). Normalpreise liefert REWE meist nicht, daher keine Ersparnis.</p>`;
-
-  if (nearOnly.length) html += `<div class="group-title">Nur ähnliche Angebote</div><div class="list">` +
-    nearOnly.map(s => `<button class="row" data-act="editdish" data-id="${s.d.id}"><div class="main"><div>${esc(s.d.name)}</div>
-      <div class="sub" style="white-space:normal">${s.near.map(n => `≈ ${esc(n.ing.name)} → ${esc(n.o.name)} ${eur(n.o.price)} (${esc(n.why)})`).join('<br>')}</div></div></button>`).join('') + `</div>`;
+  const card = s => {
+    const opt = s.hits.filter(h => h.ing.optional).length;
+    return `<div class="ang-card">
+      <div class="ang-head"><b data-act="editdish" data-id="${s.d.id}">${esc(s.d.name)}</b><span class="ang-price">${eur(s.cost)}</span></div>
+      <div class="ang-meta">${s.reqHits} von ${s.req} Zutaten im Angebot${opt ? ` · +${opt} optional` : ''}</div>
+      <div class="ang-foot"><div class="ang-chips">${s.hits.map(h => chip(h.ing.name + (h.q > 1 ? ` ×${h.q}` : ''), h.o, esc)).join('')}${s.near.map(n => chip('≈ ' + n.ing.name, { note: '' }, esc, 'near')).join('')}</div>
+      <button class="ang-add" data-act="ang-plan" data-id="${s.d.id}">+ Plan</button></div></div>`;
+  };
+  const top = scored.filter(s => s.reqHits >= 2 || s.share >= 0.5), rest = scored.filter(s => !top.includes(s));
+  html += `<div class="group-title">Passt gut (${top.length})</div>` + top.map(card).join('');
+  if (rest.length) html += `<details><summary>Weitere mit einzelnen Angebotszutaten (${rest.length})</summary>` + rest.map(card).join('') + `</details>`;
+  if (nearOnly.length) html += `<details><summary>Nur ähnliche Angebote (${nearOnly.length})</summary>` + nearOnly.map(s => `<div class="ang-card">
+      <div class="ang-head"><b data-act="editdish" data-id="${s.d.id}">${esc(s.d.name)}</b></div>
+      <div class="ang-chips" style="margin-top:8px">${s.near.map(n => `<span class="ang-chip near">≈ ${esc(n.ing.name)} <small>${esc(n.why)}</small></span>`).join('')}</div></div>`).join('') + `</details>`;
 
   const cats = [...new Set(OFFERS.map(o => o.cat))];
-  html += `<div class="group-title">Alle Lebensmittel-Angebote (${OFFERS.length})</div>`;
-  for (const c of cats) {
-    html += `<p class="hint" style="margin-bottom:4px"><b>${esc(c)}</b></p><div class="list">` +
-      OFFERS.filter(o => o.cat === c).map(o => `<div class="row"><div class="main"><div>${usedNames.has(o.name) ? '✅ ' : ''}${esc(o.name)}</div>
-        <div class="sub">${esc(o.pack)}${o.note ? ' · ' + esc(o.note) : ''}</div></div><b style="flex:none">${o.price == null ? esc(o.note) : eur(o.price)}</b></div>`).join('') + `</div>`;
+  const nMatch = OFFERS.filter(o => fits.has(o.name)).length;
+  const list = OFFERS.filter(o => filter === 'all' ? true : filter === 'match' ? fits.has(o.name) : o.cat === filter);
+  html += `<div class="group-title">Angebote</div><div class="chips">` +
+    [['match', `Passt (${nMatch})`], ['all', `Alle (${OFFERS.length})`], ...cats.map(c => [c, c])].map(([k, l]) =>
+      `<button class="chip${filter === k ? ' on' : ''}" data-act="ang-filter" data-f="${esc(k)}">${esc(l)}</button>`).join('') + `</div>`;
+  html += `<div class="list">` + list.map(o => `<div class="ang-row"><div class="main"><div>${esc(o.name)}${fits.has(o.name) ? `<span class="ang-fit">${fits.get(o.name)}× passend</span>` : ''}</div>
+      <div class="sub">${esc(o.pack)}${o.note ? ' · <b style="color:var(--danger)">' + esc(o.note) + '</b>' : ''}</div></div>
+      <b style="flex:none">${o.price == null ? '' : eur(o.price)}</b></div>`).join('') + `</div>`;
+  return html + `<p class="hint">Preis = Summe der Angebotsartikel. Normalpreise liefert REWE meist nicht.</p></div>`;
+}
+
+// Auswahl Tag/Mahlzeit für „+ In Wochenplan“ (aktuelle Woche der App)
+export function planSheetAngebote(dish, ctx) {
+  const { esc, week, plan, entryNames, iso, addDays, fmtShort, DAYNAMES } = ctx;
+  const today = iso(new Date());
+  let rows = '';
+  for (let i = 0; i < 7; i++) {
+    const d = addDays(week, i), day = iso(d), past = day < today;
+    rows += `<div class="d${past ? ' past' : ''}">${DAYNAMES[i].slice(0, 2)}<span>${fmtShort(d)}</span></div>` + ['mittag', 'abend'].map(slot => {
+      const names = entryNames(plan[day + '|' + slot]);
+      return names.length ? `<div class="ang-slot busy${past ? ' past' : ''}">${esc(names.join(', '))}</div>`
+        : `<button class="ang-slot free${past ? ' past' : ''}" data-act="ang-slot" data-day="${day}" data-slot="${slot}" data-id="${dish.id}">+ ${slot === 'mittag' ? 'Mittag' : 'Abend'}</button>`;
+    }).join('');
   }
-  return html + `<p class="hint">✅ = passt zu mindestens einem deiner Gerichte.</p></div>`;
+  return `<div class="sheet"><div class="sheet-head"><span style="width:60px"></span><b>${esc(dish.name)}</b><button data-act="close">Fertig</button></div>
+    <div class="sheet-body"><p class="hint" style="margin-top:0">Freien Platz wählen (belegte zum Ändern im Wochenplan antippen):</p>
+    <div class="ang-slots"><span></span><div class="hint" style="margin:0">Mittag</div><div class="hint" style="margin:0">Abend</div>${rows}</div></div></div>`;
 }
