@@ -120,6 +120,12 @@
   .seg button { flex: 1; border: 0; background: transparent; padding: 8px 4px; border-radius: 8px; font-size: 14px; font-weight: 600; color: var(--muted); }
   .seg button.on { background: var(--card); color: var(--text); box-shadow: 0 1px 3px rgba(0,0,0,.12); }
   .instr { white-space: pre-wrap; margin: 6px 4px; line-height: 1.55; }
+  .why-chips { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 6px; }
+  .why-chip { background: var(--accent-soft); color: var(--accent); border-radius: 999px; padding: 3px 9px; font-size: 13px; font-weight: 600; }
+  .why-chip small { font-weight: 500; opacity: .85; }
+  .why-chip.opt { background: transparent; border: 1px dashed var(--accent); }
+  .why-chip.name { background: var(--chip); color: var(--muted); }
+  .row mark, .why-chip mark { background: transparent; color: inherit; text-decoration: underline; text-decoration-thickness: 2px; text-underline-offset: 2px; }
   .plus { color: var(--muted); font-weight: 400; }
   .dishblock { padding-bottom: 12px; margin-bottom: 12px; border-bottom: 1px solid var(--line); }
   .dishhead { display: flex; align-items: center; gap: 8px; }
@@ -200,7 +206,7 @@ const CONFIG = {
 
 // Test-Funktion „Alle Gerichte löschen“ in den Einstellungen – später auf false setzen
 const SHOW_DELETE_ALL = true;
-const APP_VERSION = '2026-11-16.1';
+const APP_VERSION = '2026-11-16.2';
 const SLOTS = [['mittag', 'Mittag'], ['abend', 'Abend']];
 const UNITS = ['', 'g', 'kg', 'ml', 'l', 'Stk', 'EL', 'TL', 'Prise', 'Pck', 'Dose', 'Bund', 'Zehe', 'Scheibe'];
 const CAT_GROUPS = [
@@ -407,8 +413,17 @@ function viewDishes() {
   if (cats.length) html += `<div class="chips"><button class="chip${!state.cat ? ' on' : ''}" data-act="cat" data-cat="">Alle</button>${groupedCats(cats).flatMap(([, cs]) => cs).map(c => `<button class="chip${state.cat === c ? ' on' : ''}" data-act="cat" data-cat="${esc(c)}">${esc(c)}</button>`).join('')}</div>`;
   if (!state.dishes.length) return html + `<div class="empty-state">Noch keine Gerichte.<br>Tippe auf „+ Neu“.</div></div>`;
   if (!list.length) return html + `<div class="empty-state">Nichts gefunden.</div></div>`;
-  html += `<div class="list">` + list.map(d => `<button class="row" data-act="editdish" data-id="${d.id}"><div class="main"><div>${esc(d.name)}</div>
-    <div class="sub">${esc([d.categories.join(', '), d.ingredients.map(i => i.name).filter(Boolean).join(', ')].filter(Boolean).join(' · ')) || '&nbsp;'}</div></div>${(d.recipe_self || d.recipe_url || d.recipe_book) ? '<span title="Rezept vorhanden">📖</span>' : ''}</button>`).join('') + `</div>`;
+  const q = state.search.trim().toLowerCase();
+  // bei einer Suche: Chips zeigen, warum das Gericht gefunden wurde (Treffer im Namen bzw. passende Zutaten/Gewürze)
+  const hl = t => { const i = t.toLowerCase().indexOf(q); return i < 0 ? esc(t) : esc(t.slice(0, i)) + '<mark>' + esc(t.slice(i, i + q.length)) + '</mark>' + esc(t.slice(i + q.length)); };
+  const why = d => {
+    const hits = [...d.ingredients.map(i => [i, '']), ...d.spices.map(i => [i, 'Gewürz'])].filter(([i]) => (i.name || '').toLowerCase().includes(q));
+    const chips = hits.map(([i, kind]) => `<span class="why-chip${i.optional ? ' opt' : ''}">${hl(i.name)}${[[i.amount, i.unit].filter(Boolean).join(' '), kind, i.optional ? 'optional' : ''].filter(Boolean).map(x => ` <small>· ${esc(x)}</small>`).join('')}</span>`);
+    if (d.name.toLowerCase().includes(q)) chips.unshift(`<span class="why-chip name">Name</span>`);
+    return `<div class="why-chips">${chips.join('')}</div>`;
+  };
+  html += `<div class="list">` + list.map(d => `<button class="row" data-act="editdish" data-id="${d.id}"><div class="main"><div>${q ? hl(d.name) : esc(d.name)}</div>
+    ${q ? why(d) : `<div class="sub">${esc([d.categories.join(', '), d.ingredients.map(i => i.name).filter(Boolean).join(', ')].filter(Boolean).join(' · ')) || '&nbsp;'}</div>`}</div>${(d.recipe_self || d.recipe_url || d.recipe_book) ? '<span title="Rezept vorhanden">📖</span>' : ''}</button>`).join('') + `</div>`;
   const filtered = list.length !== state.dishes.length;
   html += `<button class="btn full" style="margin-top:14px" data-act="pdfbook">📄 ${filtered ? `Auswahl als PDF (${list.length} Gerichte)` : 'Kochbuch als PDF'}</button>`;
   return html + `<p class="hint">${state.dishes.length} Gerichte${filtered ? ' · der PDF-Export nimmt die aktuelle Suche/Kategorie' : ''}</p></div>`;
