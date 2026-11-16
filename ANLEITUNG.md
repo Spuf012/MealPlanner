@@ -64,3 +64,11 @@ Beides findest du in der App unter **⚙︎ Einstellungen**.
 | Selbst erfasst | ja / nein | bei „ja“ werden Buch, Seite und Link ignoriert |
 
 Bekannte Einheiten: g, kg, ml, l, Stk, EL, TL, Prise, Pck, Dose, Bund, Zehe, Scheibe. Statt `|` geht auch ein Zeilenumbruch in der Zelle (Excel: Alt + Enter, Numbers: ⌥ + Enter).
+
+## 6. Notvorrat
+Der Reiter **Notvorrat** orientiert sich an der Checkliste des BBK (Vorrat für 10 Tage).
+- **Lebensmittel:** Pro BBK-Gruppe siehst du, wie viel Soll (je nach Personen und Tagen) und wie viel Ist vorhanden ist. Damit eine Packung mitzählt, gibst du den Inhalt je Einheit an (z. B. Dose = 400 g) oder erfasst den Artikel direkt in kg bzw. l.
+- **Ausstattung:** Hausapotheke, Hygiene, Energieausfall, Brandschutz, Dokumente & Notgepäck. Die gestrichelten Vorschläge legst du mit einem Antippen an.
+- **Chargen:** Ein Artikel kann mehrere Einträge mit eigener Menge und eigenem MHD haben. Was bald abläuft, steht oben. Mit **−1** buchst du einen Artikel als verbraucht aus, mit 🛒 kommt er auf die Einkaufsliste.
+- **Barcode:** **📷 Scan** öffnet die Kamera. Ist der Barcode schon bekannt, öffnet sich direkt der Artikel. Sonst schlägt die App den Produktnamen über Open Food Facts nach, und du legst einen neuen Artikel an oder ordnest den Barcode einem vorhandenen Artikel zu.
+- **Einstellungen:** Personen, Tage und die Vorwarnzeit für Ablaufdaten tippst du oben an. Sie gelten für die ganze Familie.

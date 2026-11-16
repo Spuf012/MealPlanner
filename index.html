@@ -169,6 +169,40 @@
   .hm-slot.busy { color: var(--muted); background: var(--chip); }
   .hm-slot.free { border-color: var(--accent); color: var(--accent); font-weight: 600; }
   .hm-slots .past { opacity: .45; }
+  .st-info { display: flex; width: 100%; gap: 8px; align-items: baseline; text-align: left; border: 1px solid var(--line); background: var(--card); border-radius: 12px; padding: 10px 14px; margin-bottom: 12px; font-size: 14px; }
+  .st-info span { margin-left: auto; color: var(--accent); font-weight: 600; font-size: 13px; }
+  .st-card { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); margin-bottom: 10px; overflow: hidden; }
+  .st-card .st-head { padding: 12px 14px 8px; }
+  .st-card .st-head b { display: flex; justify-content: space-between; gap: 8px; }
+  .st-card .st-head b small { font-weight: 600; color: var(--muted); white-space: nowrap; }
+  .st-card .st-head .hint { margin: 2px 0 0; }
+  .bar { height: 8px; border-radius: 999px; background: var(--chip); overflow: hidden; margin-top: 8px; }
+  .bar i { display: block; height: 100%; background: var(--accent); border-radius: 999px; }
+  .bar.low i { background: #e0a100; }
+  .st-card .row { border-top: 1px solid var(--line); }
+  .st-card .row:first-child { border-top: 1px solid var(--line); }
+  .st-more { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 14px 12px; border-top: 1px solid var(--line); }
+  .st-more .chip { border: 1px dashed var(--muted); background: transparent; color: var(--muted); font-size: 13px; }
+  .st-add { border: 0; background: transparent; color: var(--accent); font-weight: 600; padding: 10px 14px; width: 100%; text-align: left; border-top: 1px solid var(--line); }
+  .st-qty { flex: none; font-weight: 600; font-size: 14px; text-align: right; }
+  .st-qty.ok { color: var(--accent); }
+  .st-qty.miss { color: var(--muted); }
+  .soon { color: #c77700; font-weight: 600; }
+  .gone { color: var(--danger); font-weight: 600; }
+  .st-warn { display: flex; align-items: center; gap: 8px; padding: 10px 14px; border-top: 1px solid var(--line); }
+  .st-warn:first-child { border-top: 0; }
+  .st-warn .main { flex: 1; min-width: 0; }
+  .st-warn button { border: 0; background: var(--chip); border-radius: 999px; padding: 6px 10px; font-size: 13px; font-weight: 600; }
+  .st-batch { display: grid; grid-template-columns: 90px 1fr 28px; gap: 6px; margin-bottom: 6px; align-items: center; }
+  .st-batch [data-act=st-delbatch] { border: 0; background: transparent; color: var(--danger); font-size: 20px; padding: 0; }
+  .st-2col { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .codechip { background: var(--chip); border-radius: 999px; padding: 5px 10px; font-size: 13px; border: 0; }
+  .codechip::after { content: " ✕"; font-size: 11px; opacity: .7; }
+  #scandlg { z-index: 100; }
+  .scanbox { position: relative; border-radius: 14px; overflow: hidden; background: #000; aspect-ratio: 4 / 3; }
+  .scanbox video { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .scanbox .scanline { position: absolute; left: 12%; right: 12%; top: 50%; height: 2px; background: #ff3b30; box-shadow: 0 0 8px #ff3b30; }
+  .scanbox .frame { position: absolute; left: 10%; right: 10%; top: 30%; bottom: 30%; border: 2px solid rgba(255,255,255,.8); border-radius: 10px; }
   #print-root { display: none; }
   @media print {
     @page { size: A4; margin: 16mm 15mm; }
@@ -210,8 +244,10 @@
   <button data-tab="gerichte"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 13h16a8 8 0 0 1-16 0zM12 5v3M8 6l1 2M16 6l-1 2"/></svg>Gerichte</button>
   <button data-tab="einkauf"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 4h2l2.4 11.2a2 2 0 0 0 2 1.6h7.7a2 2 0 0 0 2-1.5L21 8H6.2"/><circle cx="10" cy="20.5" r="1"/><circle cx="17" cy="20.5" r="1"/></svg>Einkauf</button>
   <button data-tab="vorrat"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="2.5" width="14" height="19" rx="2.5"/><path d="M5 10h14M8.5 6v1.5M8.5 13v3"/></svg>Zu Hause</button>
+  <button data-tab="notvorrat"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2.5l8 3v6c0 5-3.5 8.6-8 10-4.5-1.4-8-5-8-10v-6z"/><path d="M12 8v7M8.5 11.5h7"/></svg>Notvorrat</button>
 </nav>
 <dialog id="dlg"></dialog>
+<dialog id="scandlg"></dialog>
 <div class="toast" id="toast"></div>
 
 <script type="module">
@@ -226,7 +262,7 @@ const CONFIG = {
 
 // Test-Funktion „Alle Gerichte löschen“ in den Einstellungen – später auf false setzen
 const SHOW_DELETE_ALL = true;
-const APP_VERSION = '2026-11-16.2';
+const APP_VERSION = '2026-11-16.3';
 const SLOTS = [['mittag', 'Mittag'], ['abend', 'Abend']];
 const UNITS = ['', 'g', 'kg', 'ml', 'l', 'Stk', 'EL', 'TL', 'Prise', 'Pck', 'Dose', 'Bund', 'Zehe', 'Scheibe'];
 const CAT_GROUPS = [
@@ -276,6 +312,14 @@ const LocalStore = {
   async deleteAll() { for (const k of ['ep.dishes', 'ep.plan', 'ep.catalog']) localStorage.removeItem(k); },
   async importRecipe() { throw new Error('Import geht nur mit der gemeinsamen Datenbank (nicht im Testmodus).'); },
   async deleteDishesAndPlan() { for (const k of ['ep.dishes', 'ep.plan']) localStorage.removeItem(k); },
+  async stockItems() { return ls.get('ep.st.items', []); },
+  async stockBatches() { return ls.get('ep.st.batches', []); },
+  async saveStockItems(arr) { const m = new Map(ls.get('ep.st.items', []).map(x => [x.id, x])); for (const x of arr) m.set(x.id, x); ls.set('ep.st.items', [...m.values()]); },
+  async deleteStockItem(id) { ls.set('ep.st.items', ls.get('ep.st.items', []).filter(x => x.id !== id)); ls.set('ep.st.batches', ls.get('ep.st.batches', []).filter(b => b.item_id !== id)); },
+  async saveBatches(arr) { const m = new Map(ls.get('ep.st.batches', []).map(x => [x.id, x])); for (const x of arr) m.set(x.id, x); ls.set('ep.st.batches', [...m.values()]); },
+  async deleteBatches(ids) { ls.set('ep.st.batches', ls.get('ep.st.batches', []).filter(b => !ids.includes(b.id))); },
+  async getSetting(key) { return ls.get('ep.set.' + key, null); },
+  async setSetting(key, value) { ls.set('ep.set.' + key, value); },
 };
 
 const SupaStore = {
@@ -315,6 +359,14 @@ const SupaStore = {
       const { error } = await q(this.sb.from(t).delete()); if (error) throw error;
     }
   },
+  async stockItems() { const { data, error } = await this.sb.from('stock_items').select('*').order('name'); if (error) throw error; return data; },
+  async stockBatches() { const { data, error } = await this.sb.from('stock_batches').select('*'); if (error) throw error; return data; },
+  async saveStockItems(arr) { if (!arr.length) return; const { error } = await this.sb.from('stock_items').upsert(arr); if (error) throw error; },
+  async deleteStockItem(id) { const { error } = await this.sb.from('stock_items').delete().eq('id', id); if (error) throw error; },
+  async saveBatches(arr) { if (!arr.length) return; const { error } = await this.sb.from('stock_batches').upsert(arr); if (error) throw error; },
+  async deleteBatches(ids) { if (!ids.length) return; const { error } = await this.sb.from('stock_batches').delete().in('id', ids); if (error) throw error; },
+  async getSetting(key) { const { data, error } = await this.sb.from('app_settings').select('value').eq('key', key).maybeSingle(); if (error) throw error; return data ? data.value : null; },
+  async setSetting(key, value) { const { error } = await this.sb.from('app_settings').upsert({ key, value }); if (error) throw error; },
   async deleteAll() {
     for (const [t, q] of [['plan', x => x.gte('day', '1900-01-01')], ['dishes', x => x.not('id', 'is', null)], ['catalog', x => x.neq('kind', '')]]) {
       const { error } = await q(this.sb.from(t).delete()); if (error) throw error;
@@ -386,6 +438,7 @@ function render() {
   if (state.tab === 'woche') app.innerHTML = viewWeek();
   else if (state.tab === 'gerichte') app.innerHTML = viewDishes();
   else if (state.tab === 'vorrat') app.innerHTML = viewHome();
+  else if (state.tab === 'notvorrat') app.innerHTML = viewStock();
   else app.innerHTML = viewShopping();
 }
 
@@ -844,7 +897,7 @@ function settingsHtml() {
     <p class="hint">App-Version: <b>${APP_VERSION}</b></p>
     <p class="hint">Speichermodus: <b>${store.mode === 'cloud' ? 'Cloud (Supabase) – für die Familie geteilt' : 'Lokal (nur dieses Gerät)'}</b></p>
     <div class="group-title">Sicherung</div>
-    <p class="hint" style="margin-top:0">Speichert alle Gerichte, Wochenpläne und gespeicherten Zutaten in einer Datei – z. B. in iCloud Drive ablegen.</p>
+    <p class="hint" style="margin-top:0">Speichert alle Gerichte, Wochenpläne, gespeicherten Zutaten und den Notvorrat in einer Datei – z. B. in iCloud Drive ablegen.</p>
     <div class="actions" style="margin-top:6px"><button class="btn" data-act="backup">Sicherung speichern</button><button class="btn" data-act="restore">Sicherung laden</button></div>
     <div class="group-title">Gerichte aus Tabelle (CSV)</div>
     <p class="hint" style="margin-top:0">Vorlage in Excel/Numbers ausfüllen, als CSV speichern und hier einlesen. Gerichte mit gleichem Namen werden übersprungen.</p>
@@ -1118,6 +1171,343 @@ function printDishes(dishes, { book = false, title = '' } = {}) {
   setTimeout(() => window.print(), 50);
 }
 
+// ── Notvorrat (nach BBK-Checkliste) ─────────────────────────
+// Mengen je Person für 10 Tage (BBK „Meine persönliche Checkliste“)
+const FOOD_GROUPS = [
+  ['getraenke', 'Getränke', 20, 'l', 'Wasser, Saft – 2 l pro Person und Tag'],
+  ['getreide', 'Getreide, Brot, Kartoffeln, Nudeln, Reis', 3.5, 'kg', 'z. B. Knäckebrot, Zwieback, Nudeln, Reis'],
+  ['gemuese', 'Gemüse, Hülsenfrüchte', 4.0, 'kg', 'z. B. Dosen/Gläser, getrocknete Linsen und Bohnen'],
+  ['obst', 'Obst, Nüsse', 2.5, 'kg', 'z. B. Obst in Dosen/Gläsern, Trockenobst, Nüsse'],
+  ['milch', 'Milch, Milchprodukte', 2.6, 'kg', 'z. B. H-Milch, Milchpulver, Hartkäse'],
+  ['eiweiss', 'Fisch, Fleisch, Eier', 1.5, 'kg', 'z. B. Konserven, Volleipulver'],
+  ['fett', 'Fette, Öle', 0.357, 'kg', 'z. B. Öl, Butterschmalz'],
+  ['sonstiges', 'Sonstiges', 0, 'kg', 'nach Belieben: Zucker, Honig, Salz, Fertiggerichte, Kekse'],
+];
+const STOCK_AREAS = [
+  ['hausapotheke', 'Hausapotheke', ['Persönliche Medikamente', 'Verbandskasten', 'Schmerz- und Fiebermittel', 'Mittel gegen Erkältung', 'Mittel gegen Durchfall', 'Fieberthermometer', 'Desinfektionsmittel', 'Splitterpinzette', 'Mittel gegen Insektenstiche/Sonnenbrand']],
+  ['hygiene', 'Hygiene', ['Seife', 'Waschmittel', 'Zahnbürste & Zahnpasta', 'Toilettenpapier', 'Haushaltspapier', 'Müllbeutel', 'Einmalhandschuhe', 'Hygieneartikel']],
+  ['energie', 'Energieausfall', ['Kerzen/Teelichter', 'Streichhölzer/Feuerzeug', 'Taschenlampe', 'Reservebatterien', 'Batterie-/Kurbelradio', 'Campingkocher mit Brennstoff', 'Powerbank', 'Heizmöglichkeit mit Brennstoff']],
+  ['brandschutz', 'Brandschutz', ['Rauchmelder', 'Feuerlöscher', 'Löschdecke', 'Wassereimer']],
+  ['dokumente', 'Dokumente & Notgepäck', ['Dokumentenmappe (Kopien)', 'Bargeld', 'Rucksack für Notgepäck', 'Decke/Schlafsack', 'Wechselkleidung', 'Atemschutzmasken']],
+];
+const STOCK_UNITS = ['Stk', 'Dose', 'Glas', 'Pck', 'Flasche', 'Beutel', 'Tube', 'Rolle', 'kg', 'g', 'l', 'ml'];
+const isBulk = u => ['kg', 'g', 'l', 'ml'].includes(u);
+const areaLabel = a => a === 'lebensmittel' ? 'Lebensmittel & Getränke' : (STOCK_AREAS.find(x => x[0] === a) || [, a])[1];
+state.stock = { items: [], batches: [] };
+state.stockSet = { persons: 2, days: 10, warnDays: 60 };
+state.stockArea = ls.get('ep.stockArea', 'lebensmittel');
+
+async function loadStock() {
+  const [items, batches, set] = await Promise.all([store.stockItems(), store.stockBatches(), store.getSetting('notvorrat')]);
+  state.stock = { items: items.map(i => ({ ...i, barcodes: i.barcodes || [] })), batches };
+  if (set) Object.assign(state.stockSet, set);
+}
+const num = v => { const n = parseAmount(v); return n == null || isNaN(n) ? null : n; };
+const fmtDate = s => parseISO(s).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: '2-digit' });
+const daysUntil = s => Math.round((parseISO(s) - parseISO(iso(new Date()))) / 864e5);
+const itemBatches = id => state.stock.batches.filter(b => b.item_id === id).sort((a, b) => (a.expires || '9999').localeCompare(b.expires || '9999'));
+const itemQty = id => itemBatches(id).reduce((s, b) => s + Number(b.qty || 0), 0);
+// Menge in kg bzw. l (für den BBK-Vergleich)
+function itemAmount(it) {
+  const q = itemQty(it.id);
+  if (it.unit === 'kg' || it.unit === 'l') return q;
+  if (it.unit === 'g' || it.unit === 'ml') return q / 1000;
+  return it.size ? q * it.size / 1000 : 0;
+}
+const groupTarget = per10 => per10 * state.stockSet.persons * state.stockSet.days / 10;
+function expLabel(s) {
+  if (!s) return '';
+  const d = daysUntil(s);
+  if (d < 0) return `<span class="gone">abgelaufen ${fmtDate(s)}</span>`;
+  if (d <= state.stockSet.warnDays) return `<span class="soon">MHD ${fmtDate(s)} (${d === 0 ? 'heute' : d === 1 ? 'morgen' : `in ${d} Tagen`})</span>`;
+  return `MHD ${fmtDate(s)}`;
+}
+function expiringBatches() {
+  return state.stock.batches.filter(b => b.expires && daysUntil(b.expires) <= state.stockSet.warnDays)
+    .map(b => ({ b, it: state.stock.items.find(i => i.id === b.item_id) })).filter(x => x.it)
+    .sort((x, y) => x.b.expires.localeCompare(y.b.expires));
+}
+function stockRow(it) {
+  const q = itemQty(it.id); const first = itemBatches(it.id).find(b => b.expires);
+  const size = !isBulk(it.unit) && it.size ? ` à ${fmtNum(it.size)} ${it.grp === 'getraenke' ? 'ml' : 'g'}` : '';
+  const tgt = it.target ? ` / ${fmtNum(it.target)}` : '';
+  const cls = it.target ? (q >= it.target ? 'ok' : 'miss') : (q > 0 ? 'ok' : 'miss');
+  return `<button class="row" data-act="st-edit" data-id="${it.id}"><div class="main"><div>${esc(it.name)}</div>
+    <div class="sub">${esc(it.unit + size)}${first ? ' · ' + expLabel(first.expires) : ''}${it.note ? ' · ' + esc(it.note) : ''}</div></div>
+    <span class="st-qty ${cls}">${fmtNum(q)}${tgt} ${esc(it.unit)}</span></button>`;
+}
+function viewStock() {
+  const S = state.stockSet;
+  let html = `<div class="wrap"><header class="top"><h1>Notvorrat</h1><div style="display:flex;gap:8px"><button class="iconbtn" data-act="st-scan" aria-label="Barcode scannen">📷 Scan</button><button class="iconbtn primary" data-act="st-new">+ Neu</button></div></header>
+    <button class="st-info" data-act="st-settings"><span style="margin:0;color:inherit;font-weight:400;font-size:14px">Für <b>${S.persons} ${S.persons === 1 ? 'Person' : 'Personen'}</b> · <b>${S.days} Tage</b></span><span>ändern</span></button>`;
+  const warn = expiringBatches();
+  if (warn.length) {
+    html += `<div class="group-title">Läuft ab / abgelaufen (${warn.length})</div><div class="st-card">` + warn.map(({ b, it }) =>
+      `<div class="st-warn"><div class="main" data-act="st-edit" data-id="${it.id}"><div>${esc(it.name)} <span class="hint">· ${fmtNum(Number(b.qty))} ${esc(it.unit)}</span></div><div class="sub" style="font-size:13px">${expLabel(b.expires)}</div></div>
+      <button data-act="st-used" data-id="${b.id}" title="Eins verbraucht">−1</button><button data-act="st-buy" data-name="${esc(it.name)}" title="Auf die Einkaufsliste">🛒</button></div>`).join('') + `</div>`;
+  }
+  html += `<div class="seg" style="margin:6px 0 12px">${[['lebensmittel', 'Lebensmittel'], ['ausstattung', 'Ausstattung']].map(([a, t]) => `<button class="${state.stockArea === a ? 'on' : ''}" data-act="st-area" data-area="${a}">${t}</button>`).join('')}</div>`;
+  const items = state.stock.items;
+  if (state.stockArea === 'lebensmittel') {
+    for (const [g, label, per10, unit, hint] of FOOD_GROUPS) {
+      const list = items.filter(i => i.area === 'lebensmittel' && (i.grp || 'sonstiges') === g).sort((a, b) => a.name.localeCompare(b.name, 'de'));
+      const ist = list.reduce((s, i) => s + itemAmount(i), 0); const soll = groupTarget(per10);
+      const pct = soll ? Math.min(100, Math.round(ist / soll * 100)) : 0;
+      html += `<div class="st-card"><div class="st-head"><b>${esc(label)}${soll ? `<small>${fmtNum(+ist.toFixed(2))} / ${fmtNum(+soll.toFixed(2))} ${unit}</small>` : ''}</b>
+        <p class="hint">${esc(hint)}</p>${soll ? `<div class="bar${pct < 100 ? ' low' : ''}"><i style="width:${pct}%"></i></div>` : ''}</div>
+        ${list.map(stockRow).join('')}<button class="st-add" data-act="st-new" data-area="lebensmittel" data-grp="${g}">+ Artikel</button></div>`;
+    }
+    html += `<p class="hint">Damit eine Packung zählt, beim Artikel den Inhalt je Einheit (g bzw. ml) angeben – oder direkt in kg/l erfassen.</p>`;
+  } else {
+    for (const [a, label, sugg] of STOCK_AREAS) {
+      const list = items.filter(i => i.area === a).sort((x, y) => x.name.localeCompare(y.name, 'de'));
+      const have = new Set(list.map(i => i.name.toLowerCase()));
+      const open = sugg.filter(s => !have.has(s.toLowerCase()));
+      const done = list.filter(i => itemQty(i.id) >= (i.target || 1)).length;
+      html += `<div class="st-card"><div class="st-head"><b>${esc(label)}<small>${done} / ${list.length + open.length}</small></b></div>
+        ${list.map(stockRow).join('')}
+        ${open.length ? `<div class="st-more">${open.map(s => `<button class="chip" data-act="st-new" data-area="${a}" data-name="${esc(s)}">+ ${esc(s)}</button>`).join('')}</div>` : ''}
+        <button class="st-add" data-act="st-new" data-area="${a}">+ Eigener Eintrag</button></div>`;
+    }
+  }
+  const miss = stockMissing();
+  html += `<button class="btn primary full" style="margin-top:6px" data-act="st-buymissing" ${miss.length ? '' : 'disabled'}>Fehlendes auf die Einkaufsliste (${miss.length})</button>
+    <p class="hint">Landet in der Einkaufsliste der aktuellen Woche unter „zusätzlich“.${state.stockArea === "lebensmittel" ? "" : " Vorschläge (gestrichelt) zählen erst, wenn du sie angelegt hast."}</p>`;
+  return html + `</div>`;
+}
+function stockMissing() {
+  const out = [];
+  if (state.stockArea === 'lebensmittel') {
+    for (const [g, label, per10, unit] of FOOD_GROUPS) {
+      const soll = groupTarget(per10); if (!soll) continue;
+      const ist = state.stock.items.filter(i => i.area === 'lebensmittel' && (i.grp || 'sonstiges') === g).reduce((s, i) => s + itemAmount(i), 0);
+      if (ist < soll) out.push(`Notvorrat ${label} (fehlen ${fmtNum(+(soll - ist).toFixed(1))} ${unit})`);
+    }
+  } else {
+    for (const [a] of STOCK_AREAS) {
+      const list = state.stock.items.filter(i => i.area === a);
+      for (const i of list) { const q = itemQty(i.id), t = i.target || 1; if (q < t) out.push(`${i.name} (Notvorrat${t - q !== 1 || i.target ? `, fehlen ${fmtNum(t - q)} ${i.unit}` : ''})`); }
+    }
+  }
+  const expired = expiringBatches().filter(x => daysUntil(x.b.expires) < 0 && (state.stockArea === 'lebensmittel') === (x.it.area === 'lebensmittel'));
+  for (const { it } of expired) { const t = `${it.name} (Notvorrat, abgelaufen ersetzen)`; if (!out.includes(t)) out.push(t); }
+  return out;
+}
+function addToShopping(entries) {
+  const k = 'ep.extra.' + iso(mondayOf(new Date())); const ex = ls.get(k, []); let n = 0;
+  for (const e of entries) if (!ex.includes(e)) { ex.push(e); n++; }
+  ls.set(k, ex); return n;
+}
+
+function stockBatchRow(b) {
+  return `<div class="st-batch" data-id="${b.id}"><input class="in" name="qty" inputmode="decimal" placeholder="Menge" value="${esc(b.qty == null ? '' : String(b.qty).replace('.', ','))}">
+    <input class="in" type="date" name="exp" value="${esc(b.expires || '')}"><button type="button" data-act="st-delbatch" aria-label="Charge entfernen">⊖</button></div>`;
+}
+const codeChip = c => `<button type="button" class="codechip" data-act="st-delcode" data-code="${esc(c)}">${esc(c)}</button>`;
+function stockFormHtml(it, o = {}) {
+  const isNew = !it;
+  it = it ? { ...it, barcodes: [...(it.barcodes || [])] }
+    : { id: uid(), area: 'lebensmittel', grp: 'sonstiges', name: '', unit: 'Stk', size: null, target: null, barcodes: [], note: '', ...(o.prefill || {}) };
+  if (o.extraCode && !it.barcodes.includes(o.extraCode)) it.barcodes.push(o.extraCode);
+  const batches = isNew ? [] : itemBatches(it.id);
+  if (isNew || o.addBatch) batches.push({ id: uid(), qty: 1, expires: '' });
+  const food = it.area === 'lebensmittel';
+  return `<form class="sheet" id="stform" data-id="${it.id}" data-new="${isNew ? 1 : 0}"><div class="sheet-head"><button type="button" data-act="close">Abbrechen</button><b>${isNew ? 'Neuer Artikel' : 'Artikel'}</b><button type="submit">Sichern</button></div>
+    <div class="sheet-body">
+      ${o.banner ? `<div class="banner">${o.banner}</div>` : ''}
+      <label class="f">Name</label><input class="in" name="iname" required value="${esc(it.name)}" placeholder="z. B. Linsen, Dose">
+      <label class="f">Bereich</label><select class="in" name="area" id="st-area">${[['lebensmittel', 'Lebensmittel & Getränke'], ...STOCK_AREAS].map(([a, t]) => `<option value="${a}"${it.area === a ? ' selected' : ''}>${esc(t)}</option>`).join('')}</select>
+      <div id="st-food"${food ? '' : ' hidden'}><label class="f">Lebensmittelgruppe (BBK)</label><select class="in" name="grp">${FOOD_GROUPS.map(([g, t]) => `<option value="${g}"${(it.grp || 'sonstiges') === g ? ' selected' : ''}>${esc(t)}</option>`).join('')}</select></div>
+      <div class="st-2col"><div><label class="f">Einheit</label><select class="in" name="unit" id="st-unit">${STOCK_UNITS.map(u => `<option${it.unit === u ? ' selected' : ''}>${u}</option>`).join('')}</select></div>
+        <div id="st-size"${food && !isBulk(it.unit) ? '' : ' hidden'}><label class="f">Inhalt je Einheit (g/ml)</label><input class="in" name="size" inputmode="decimal" placeholder="z. B. 400" value="${esc(it.size ?? '')}"></div></div>
+      <label class="f">Soll-Menge (optional)</label><input class="in" name="soll" inputmode="decimal" placeholder="${food ? 'leer = zählt nur zur BBK-Gruppe' : 'leer = 1'}" value="${esc(it.target ?? '')}">
+      <label class="f">Bestand & Haltbarkeit</label>
+      <div class="st-batch hint" style="margin:0 0 4px"><span>Menge</span><span>MHD / Ablaufdatum</span><span></span></div>
+      <div id="st-batches">${batches.map(stockBatchRow).join('')}</div>
+      <button type="button" class="btn full" data-act="st-addbatch">+ Weitere Charge (anderes MHD)</button>
+      <label class="f">Barcodes</label><div class="catchips" id="st-codes">${it.barcodes.map(codeChip).join('')}</div>
+      <button type="button" class="btn full" style="margin-top:8px" data-act="st-addcode">📷 Barcode hinzufügen</button>
+      <label class="f">Notiz (optional)</label><input class="in" name="note" value="${esc(it.note || '')}" placeholder="z. B. Keller, Regal 2">
+      ${isNew ? '' : '<button type="button" class="btn danger full" style="margin-top:18px" data-act="st-del">Artikel löschen</button>'}
+    </div></form>`;
+}
+function stockSettingsHtml() {
+  const S = state.stockSet;
+  return `<form class="sheet" id="stsetform"><div class="sheet-head"><button type="button" data-act="close">Abbrechen</button><b>Notvorrat</b><button type="submit">Sichern</button></div><div class="sheet-body">
+    <label class="f">Personen im Haushalt</label><input class="in" name="persons" type="number" min="1" max="20" value="${S.persons}">
+    <label class="f">Vorrat für wie viele Tage?</label><input class="in" name="days" type="number" min="1" max="90" value="${S.days}">
+    <p class="hint">Das BBK empfiehlt einen Vorrat für 10 Tage.</p>
+    <label class="f">Warnen, wenn etwas in so vielen Tagen abläuft</label><input class="in" name="warn" type="number" min="1" max="365" value="${S.warnDays}">
+    <p class="hint">Gilt für die ganze Familie.</p></div></form>`;
+}
+
+// ── Barcode-Scanner ──────────────────────────────────────
+let _detector;
+async function getDetector() {
+  if (_detector) return _detector;
+  const F = ['ean_13', 'ean_8', 'upc_a', 'upc_e', 'code_128'];
+  if ('BarcodeDetector' in window) {
+    try { const sup = await window.BarcodeDetector.getSupportedFormats(); const f = F.filter(x => sup.includes(x)); if (f.length) return (_detector = new window.BarcodeDetector({ formats: f })); } catch {}
+  }
+  // iPhone/Safari: Ersatz-Bibliothek (ZXing als WebAssembly)
+  const { BarcodeDetector } = await import('https://fastly.jsdelivr.net/npm/barcode-detector@3/dist/es/ponyfill.min.js');
+  return (_detector = new BarcodeDetector({ formats: F }));
+}
+function scanCode() {
+  const d = $('#scandlg');
+  d.innerHTML = `<div class="sheet"><div class="sheet-head"><button data-sc="cancel">Abbrechen</button><b>Barcode scannen</b><span style="width:60px"></span></div><div class="sheet-body">
+    <div class="scanbox"><video playsinline muted autoplay></video><div class="frame"></div><div class="scanline"></div></div>
+    <p class="hint" id="scan-msg">Kamera wird gestartet …</p>
+    <label class="f">Oder Nummer eintippen</label><div class="addrow" style="margin-top:0"><input class="in" id="scan-manual" inputmode="numeric" placeholder="EAN, z. B. 4001234567890"><button class="btn" data-sc="ok">OK</button></div></div></div>`;
+  d.showModal();
+  return new Promise(async resolve => {
+    let stream = null, stopped = false;
+    const msg = t => { const m = d.querySelector('#scan-msg'); if (m) m.textContent = t; };
+    const finish = code => { if (stopped) return; stopped = true; stream?.getTracks().forEach(t => t.stop()); d.close(); resolve(code); };
+    d.onclick = e => { const b = e.target.closest('[data-sc]'); if (!b) return; if (b.dataset.sc === 'cancel') return finish(null); const v = $('#scan-manual').value.replace(/\D/g, ''); if (v) finish(v); };
+    d.onkeydown = e => { if (e.key === 'Enter' && e.target.id === 'scan-manual') { e.preventDefault(); const v = e.target.value.replace(/\D/g, ''); if (v) finish(v); } };
+    d.oncancel = e => { e.preventDefault(); finish(null); };
+    try {
+      if (!navigator.mediaDevices?.getUserMedia) throw new Error('Kamera wird von diesem Browser nicht unterstützt');
+      stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 } }, audio: false });
+      if (stopped) { stream.getTracks().forEach(t => t.stop()); return; }
+      const v = d.querySelector('video'); v.srcObject = stream; await v.play().catch(() => {});
+      const det = await getDetector();
+      msg('Barcode in den Rahmen halten');
+      const loop = async () => {
+        if (stopped) return;
+        try { if (v.readyState >= 2) { const r = await det.detect(v); const hit = r.find(x => x.rawValue); if (hit) { navigator.vibrate?.(60); return finish(hit.rawValue); } } } catch {}
+        setTimeout(loop, 200);
+      };
+      loop();
+    } catch (e) { msg('Kamera nicht verfügbar (' + (e.message || e) + '). Nummer unten eintippen.'); }
+  });
+}
+// Produktdaten von Open Food Facts (kostenlos, ohne Anmeldung)
+async function offLookup(code) {
+  try {
+    const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), 8000);
+    const r = await fetch(`https://world.openfoodfacts.org/api/v2/product/${encodeURIComponent(code)}.json?fields=product_name,product_name_de,brands,quantity,product_quantity,product_quantity_unit,categories_tags`, { signal: ctl.signal });
+    clearTimeout(t); const j = await r.json(); if (j.status !== 1 || !j.product) return null;
+    const p = j.product; const cats = (p.categories_tags || []).join(' ');
+    const grp = /beverage|water|juice|getrank/.test(cats) ? 'getraenke'
+      : /pasta|rice|bread|cereal|potato|flour|crispbread|rusk/.test(cats) ? 'getreide'
+      : /vegetable|legume|bean|lentil|pea|tomato|mushroom/.test(cats) ? 'gemuese'
+      : /fruit|nut|compote/.test(cats) ? 'obst'
+      : /dair|milk|cheese|yogurt/.test(cats) ? 'milch'
+      : /meat|fish|seafood|tuna|egg|sausage/.test(cats) ? 'eiweiss'
+      : /oil|fat|butter|lard/.test(cats) ? 'fett' : 'sonstiges';
+    let size = Number(p.product_quantity) || null; const pu = String(p.product_quantity_unit || '').toLowerCase();
+    if (size && pu === 'kg') size *= 1000; if (size && pu === 'l') size *= 1000; if (size && pu === 'cl') size *= 10;
+    return { name: (p.product_name_de || p.product_name || '').trim(), brand: (p.brands || '').split(',')[0].trim(), quantity: p.quantity || '', size, grp };
+  } catch { return null; }
+}
+let stScanned = null;
+async function stockScan() {
+  const code = await scanCode(); if (!code) return;
+  const hit = state.stock.items.find(i => (i.barcodes || []).includes(code));
+  if (hit) { openSheet(stockFormHtml(hit, { addBatch: true, banner: `📷 Erkannt: <b>${esc(hit.name)}</b> – Menge und MHD der neuen Packung eintragen.` })); return focusLastBatch(); }
+  openSheet(`<div class="sheet"><div class="sheet-head"><button data-act="close">Abbrechen</button><b>Barcode ${esc(code)}</b><span style="width:60px"></span></div><div class="sheet-body"><div class="empty-state">Produkt wird gesucht …</div></div></div>`);
+  const p = await offLookup(code); stScanned = { code, p };
+  if (!dlg.open) return;
+  const title = p && p.name ? `${p.brand ? esc(p.brand) + ' ' : ''}${esc(p.name)}${p.quantity ? ` <span class="hint">(${esc(p.quantity)})</span>` : ''}` : '';
+  const others = [...state.stock.items].sort((a, b) => ((b.grp === p?.grp) - (a.grp === p?.grp)) || a.name.localeCompare(b.name, 'de'));
+  openSheet(`<div class="sheet"><div class="sheet-head"><button data-act="close">Abbrechen</button><b>Barcode ${esc(code)}</b><span style="width:60px"></span></div><div class="sheet-body">
+    ${title ? `<p style="margin:4px 4px 12px">${title}</p>` : '<p class="hint">Produkt nicht in der Datenbank gefunden – Name bitte selbst eintragen.</p>'}
+    <button class="btn primary full" data-act="st-scannew">Als neuen Artikel anlegen</button>
+    ${others.length ? `<div class="group-title">Oder zu vorhandenem Artikel</div><p class="hint" style="margin-top:0">Der Barcode wird gemerkt – beim nächsten Scan wird der Artikel direkt erkannt.</p>
+      <div class="list">${others.map(i => `<button class="row" data-act="st-attach" data-id="${i.id}"><div class="main"><div>${esc(i.name)}</div><div class="sub">${esc(i.area === 'lebensmittel' ? (FOOD_GROUPS.find(g => g[0] === i.grp) || FOOD_GROUPS[7])[1] : areaLabel(i.area))}</div></div></button>`).join('')}</div>` : ''}
+  </div></div>`);
+}
+function focusLastBatch() { const q = dlg.querySelector('#st-batches .st-batch:last-child [name=exp]'); if (q && matchMedia('(pointer:fine)').matches) q.focus(); }
+async function stockAct(act, el) {
+  switch (act) {
+    case 'st-area': state.stockArea = el.dataset.area; ls.set('ep.stockArea', state.stockArea); return render();
+    case 'st-settings': return openSheet(stockSettingsHtml());
+    case 'st-scan': return stockScan();
+    case 'st-new': {
+      const area = el.dataset.area || (state.stockArea === 'lebensmittel' ? 'lebensmittel' : 'hausapotheke');
+      return openSheet(stockFormHtml(null, { prefill: { area, grp: el.dataset.grp || 'sonstiges', name: el.dataset.name || '', target: area === 'lebensmittel' ? null : 1 } }));
+    }
+    case 'st-edit': { const it = state.stock.items.find(i => i.id === el.dataset.id); return it && openSheet(stockFormHtml(it)); }
+    case 'st-scannew': {
+      const { code, p } = stScanned || {}; if (!code) return;
+      const name = p?.name ? (p.brand && !p.name.toLowerCase().includes(p.brand.toLowerCase()) ? `${p.name} (${p.brand})` : p.name) : '';
+      openSheet(stockFormHtml(null, { prefill: { area: 'lebensmittel', grp: p?.grp || 'sonstiges', name, unit: 'Stk', size: p?.size || null, barcodes: [code] } }));
+      return focusLastBatch();
+    }
+    case 'st-attach': {
+      const it = state.stock.items.find(i => i.id === el.dataset.id); if (!it || !stScanned) return;
+      openSheet(stockFormHtml(it, { extraCode: stScanned.code, addBatch: true, banner: 'Barcode wird beim Sichern zu diesem Artikel gespeichert.' }));
+      return focusLastBatch();
+    }
+    case 'st-addbatch': { $('#st-batches').insertAdjacentHTML('beforeend', stockBatchRow({ id: uid(), qty: 1, expires: '' })); return focusLastBatch(); }
+    case 'st-delbatch': return el.closest('.st-batch').remove();
+    case 'st-delcode': return el.remove();
+    case 'st-addcode': {
+      const code = await scanCode(); if (!code) return;
+      const box = $('#st-codes'); if (!box) return;
+      if ([...box.querySelectorAll('[data-code]')].some(c => c.dataset.code === code)) return toast('Barcode ist schon eingetragen');
+      const other = state.stock.items.find(i => i.id !== $('#stform').dataset.id && (i.barcodes || []).includes(code));
+      if (other) toast(`Achtung: gehört schon zu „${other.name}“`);
+      box.insertAdjacentHTML('beforeend', codeChip(code)); return;
+    }
+    case 'st-del': {
+      const id = $('#stform').dataset.id; const it = state.stock.items.find(i => i.id === id);
+      if (!confirm(`„${it.name}“ mit allen Chargen löschen?`)) return;
+      await guard(async () => { await store.deleteStockItem(id); state.stock.items = state.stock.items.filter(i => i.id !== id); state.stock.batches = state.stock.batches.filter(b => b.item_id !== id); closeSheet(); render(); toast('Gelöscht'); });
+      return;
+    }
+    case 'st-used': {
+      const b = state.stock.batches.find(x => x.id === el.dataset.id); if (!b) return;
+      const it = state.stock.items.find(i => i.id === b.item_id);
+      await guard(async () => {
+        const q = Number(b.qty) - 1;
+        if (q > 0) { b.qty = q; await store.saveBatches([b]); } else { await store.deleteBatches([b.id]); state.stock.batches = state.stock.batches.filter(x => x.id !== b.id); }
+        render(); toast(`${it?.name || 'Artikel'}: 1 verbraucht`);
+      });
+      return;
+    }
+    case 'st-buy': { const n = addToShopping([`${el.dataset.name} (Notvorrat)`]); return toast(n ? 'Auf der Einkaufsliste' : 'Steht schon auf der Einkaufsliste'); }
+    case 'st-buymissing': {
+      const miss = stockMissing(); if (!miss.length) return;
+      const n = addToShopping(miss); return toast(n ? `${n} Einträge auf die Einkaufsliste` : 'Steht schon alles auf der Einkaufsliste');
+    }
+  }
+}
+document.addEventListener('change', e => {
+  if (e.target.id === 'st-area') { const food = e.target.value === 'lebensmittel'; $('#st-food').hidden = !food; $('#st-size').hidden = !food || isBulk($('#st-unit').value); }
+  if (e.target.id === 'st-unit') { $('#st-size').hidden = $('#st-area').value !== 'lebensmittel' || isBulk(e.target.value); }
+});
+document.addEventListener('submit', async e => {
+  if (e.target.id === 'stsetform') {
+    e.preventDefault(); const f = e.target; const v = n => Math.max(1, Math.round(Number(f.querySelector(`[name=${n}]`).value) || 0));
+    const s = { persons: v('persons'), days: v('days'), warnDays: v('warn') };
+    await guard(async () => { await store.setSetting('notvorrat', s); Object.assign(state.stockSet, s); closeSheet(); render(); toast('Gespeichert'); });
+    return;
+  }
+  if (e.target.id !== 'stform') return; e.preventDefault();
+  const f = e.target; const v = n => f.querySelector(`[name=${n}]`).value; const id = f.dataset.id;
+  const area = v('area'), unit = v('unit');
+  const item = { id, area, grp: area === 'lebensmittel' ? v('grp') : null, name: v('iname').trim(), unit,
+    size: area === 'lebensmittel' && !isBulk(unit) ? num(v('size')) : null, target: num(v('soll')),
+    barcodes: [...new Set([...f.querySelectorAll('#st-codes [data-code]')].map(c => c.dataset.code))], note: v('note').trim() };
+  if (!item.name) return;
+  const rows = [...f.querySelectorAll('#st-batches .st-batch')].map(r => ({ id: r.dataset.id, item_id: id, qty: num(r.querySelector('[name=qty]').value), expires: r.querySelector('[name=exp]').value || null })).filter(b => b.qty > 0);
+  const removed = state.stock.batches.filter(b => b.item_id === id && !rows.some(r => r.id === b.id)).map(b => b.id);
+  await guard(async () => {
+    // Barcode darf nur zu einem Artikel gehören
+    const moved = state.stock.items.filter(i => i.id !== id && i.barcodes.some(c => item.barcodes.includes(c))).map(i => ({ ...i, barcodes: i.barcodes.filter(c => !item.barcodes.includes(c)) }));
+    await store.saveStockItems([item, ...moved]);
+    if (removed.length) await store.deleteBatches(removed);
+    await store.saveBatches(rows);
+    for (const x of [item, ...moved]) { const i = state.stock.items.findIndex(y => y.id === x.id); if (i >= 0) state.stock.items[i] = x; else state.stock.items.push(x); }
+    state.stock.batches = [...state.stock.batches.filter(b => b.item_id !== id), ...rows];
+    state.stockArea = area === 'lebensmittel' ? 'lebensmittel' : 'ausstattung'; ls.set('ep.stockArea', state.stockArea);
+    closeSheet(); render(); toast('Gespeichert');
+  });
+});
+
 // ── Sicherung & CSV ────────────────────────────────────────
 function download(name, text, type) {
   const blob = new Blob([text], { type }); const url = URL.createObjectURL(blob);
@@ -1126,7 +1516,8 @@ function download(name, text, type) {
 }
 async function doBackup() {
   const data = { app: 'essensplaner', version: 1, exported_at: new Date().toISOString(),
-    dishes: await store.dishes(), plan: await store.plan('1900-01-01', '2999-12-31'), catalog: await store.catalog() };
+    dishes: await store.dishes(), plan: await store.plan('1900-01-01', '2999-12-31'), catalog: await store.catalog(),
+    stock_items: await store.stockItems(), stock_batches: await store.stockBatches(), stock_settings: state.stockSet };
   download(`Essensplaner-Sicherung-${iso(new Date())}.json`, JSON.stringify(data, null, 1), 'application/json');
   toast(`Gesichert: ${data.dishes.length} Gerichte`);
 }
@@ -1152,7 +1543,9 @@ async function applyRestore(replace) {
   await guard(async () => {
     if (replace) await store.deleteAll();
     await store.saveDishes(dishes); await store.savePlan(plan); await store.saveCatalog(data.catalog || []);
-    await loadDishes(); await loadPlan();
+    if (Array.isArray(data.stock_items)) { await store.saveStockItems(data.stock_items); await store.saveBatches(data.stock_batches || []); }
+    if (data.stock_settings) await store.setSetting('notvorrat', data.stock_settings);
+    await loadDishes(); await loadPlan(); await loadStock();
     closeSheet(); render(); toast(`${dishes.length} Gerichte ${replace ? 'wiederhergestellt' : 'übernommen'}`);
   });
 }
@@ -1240,6 +1633,7 @@ document.addEventListener('click', async ev => {
   if (!state.loggedIn) return;
   if (el.dataset.tab) { state.tab = el.dataset.tab; ls.set('ep.tab', state.tab); render(); window.scrollTo(0, 0); return; }
   const act = el.dataset.act;
+  if (act.startsWith('st-')) return stockAct(act, el);
   switch (act) {
     case 'prevweek': state.week = addDays(state.week, -7); return refreshWeek();
     case 'nextweek': state.week = addDays(state.week, 7); return refreshWeek();
@@ -1480,7 +1874,7 @@ document.addEventListener('submit', async e => {
 });
 
 document.addEventListener('visibilitychange', async () => {
-  if (document.visibilityState === 'visible' && store.mode === 'cloud' && !dlg.open) { await guard(async () => { await loadDishes(); await loadPlan(); }); render(); }
+  if (document.visibilityState === 'visible' && store.mode === 'cloud' && !dlg.open && !$('#scandlg').open) { await guard(async () => { await loadDishes(); await loadPlan(); await loadStock(); }); render(); }
 });
 
 // ── Login & Start ──────────────────────────────────────────
@@ -1505,6 +1899,7 @@ async function start() {
   $('#tabs').hidden = false;
   $('#app').innerHTML = `<div class="empty-state">Lade …</div>`;
   await guard(async () => { await loadDishes(); await loadPlan(); });
+  await guard(loadStock);
   render();
   // Import per Link (z. B. aus dem iPhone-Teilen-Menü): …/?import=https://…
   const imp = new URLSearchParams(location.search).get('import');
