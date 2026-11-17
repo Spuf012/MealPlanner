@@ -268,7 +268,7 @@ const CONFIG = {
 
 // Test-Funktion „Alle Gerichte löschen“ in den Einstellungen – später auf false setzen
 const SHOW_DELETE_ALL = true;
-const APP_VERSION = '2026-11-17.2';
+const APP_VERSION = '2026-11-17.3';
 const SLOTS = [['mittag', 'Mittag'], ['abend', 'Abend']];
 const UNITS = ['', 'g', 'kg', 'ml', 'l', 'Stk', 'EL', 'TL', 'Prise', 'Pck', 'Dose', 'Bund', 'Zehe', 'Scheibe'];
 const CAT_GROUPS = [
@@ -643,14 +643,14 @@ function viewShopping() {
     <p class="hint" style="margin-top:0">${hint}</p><div class="list">${rows}</div></details>`;
   const pickRow = (it, key) => `<button class="row spice${spiceSel.has(key) ? ' on' : ''}" data-act="togglespice" data-key="${esc(key)}"><span class="check"></span>
         <div class="main"><div>${esc(itemText(it))}</div><div class="sub">${esc([...it.dishes].join(', '))}</div></div></button>`;
-  if (optional.length) html += section('optional', 'Optional', `${optional.filter(i => spiceSel.has('opt|' + i.key)).length}/${optional.length}`,
-    'Tippe an, was mit auf die Liste soll.', optional.map(it => pickRow(it, 'opt|' + it.key)).join(''));
-  if (spices.length) html += section('spices', 'Gewürze', `${spices.filter(i => spiceSel.has(i.key)).length}/${spices.length}`,
-    'Tippe an, welche Gewürze mit auf die Liste sollen.', spices.map(it => pickRow(it, it.key)).join(''));
   if (items.length) html += section('items', 'Zutaten', `${items.filter(i => !have.has(i.key)).length}/${items.length}`,
     'Tippe an, was schon zu Hause ist – das wird durchgestrichen und nicht übertragen.',
     items.map(it => `<button class="row${have.has(it.key) ? ' done' : ''}" data-act="toggle" data-key="${esc(it.key)}"><span class="check"></span>
         <div class="main"><div>${esc(itemText(it))}</div><div class="sub">${it.isExtra ? 'zusätzlich' : esc([...it.dishes].join(', '))}</div></div></button>`).join(''));
+  if (optional.length) html += section('optional', 'Optional', `${optional.filter(i => spiceSel.has('opt|' + i.key)).length}/${optional.length}`,
+    'Tippe an, was mit auf die Liste soll.', optional.map(it => pickRow(it, 'opt|' + it.key)).join(''));
+  if (spices.length) html += section('spices', 'Gewürze', `${spices.filter(i => spiceSel.has(i.key)).length}/${spices.length}`,
+    'Tippe an, welche Gewürze mit auf die Liste sollen.', spices.map(it => pickRow(it, it.key)).join(''));
   html += `<div class="addrow"><input class="in" id="extra" placeholder="Weiteres hinzufügen (z. B. Milch)"><button class="btn" data-act="addextra">+</button></div>`;
   const n = items.filter(i => !have.has(i.key)).length + spices.filter(i => spiceSel.has(i.key)).length + optional.filter(i => spiceSel.has('opt|' + i.key)).length;
   html += `<div class="actions"><button class="btn primary full" data-act="toreminders" ${n ? '' : 'disabled'}>An Erinnerungen senden (${n})</button>
