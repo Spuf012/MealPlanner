@@ -268,7 +268,7 @@ const CONFIG = {
 
 // Test-Funktion „Alle Gerichte löschen“ in den Einstellungen – später auf false setzen
 const SHOW_DELETE_ALL = true;
-const APP_VERSION = '2026-11-17.1';
+const APP_VERSION = '2026-11-17.2';
 const SLOTS = [['mittag', 'Mittag'], ['abend', 'Abend']];
 const UNITS = ['', 'g', 'kg', 'ml', 'l', 'Stk', 'EL', 'TL', 'Prise', 'Pck', 'Dose', 'Bund', 'Zehe', 'Scheibe'];
 const CAT_GROUPS = [
@@ -636,9 +636,9 @@ function viewShopping() {
   if (!items.length && !spices.length && !optional.length) {
     html += `<div class="empty-state">Für diese Woche ist noch nichts geplant.</div>`;
   }
-  // auf-/zuklappbare Abschnitte; Zustand wird pro Gerät gemerkt
-  const fold = ls.get('ep.fold', {});
-  const section = (key, title, count, hint, rows) => `<details class="shop-sec" data-fold="${key}"${fold[key] === false ? '' : ' open'}>
+  // auf-/zuklappbare Abschnitte; beim Start der App zugeklappt, Zustand nur solange die App offen ist
+  const fold = state.fold || (state.fold = {});
+  const section = (key, title, count, hint, rows) => `<details class="shop-sec" data-fold="${key}"${fold[key] ? ' open' : ''}>
     <summary><span>${title}</span><span class="shop-count">${count}</span></summary>
     <p class="hint" style="margin-top:0">${hint}</p><div class="list">${rows}</div></details>`;
   const pickRow = (it, key) => `<button class="row spice${spiceSel.has(key) ? ' on' : ''}" data-act="togglespice" data-key="${esc(key)}"><span class="check"></span>
@@ -1881,7 +1881,7 @@ document.addEventListener('submit', async e => {
 
 document.addEventListener('toggle', e => {
   const k = e.target.dataset?.fold; if (!k) return;
-  const f = ls.get('ep.fold', {}); f[k] = e.target.open; ls.set('ep.fold', f);
+  (state.fold || (state.fold = {}))[k] = e.target.open;
 }, true);
 
 document.addEventListener('visibilitychange', async () => {
