@@ -126,6 +126,12 @@
   .why-chip.opt { background: transparent; border: 1px dashed var(--accent); }
   .why-chip.name { background: var(--chip); color: var(--muted); }
   .row mark, .why-chip mark { background: transparent; color: inherit; text-decoration: underline; text-decoration-thickness: 2px; text-underline-offset: 2px; }
+  .shop-sec { margin-bottom: 12px; }
+  .shop-sec > summary { list-style: none; display: flex; align-items: center; gap: 8px; cursor: pointer; margin: 14px 4px 6px; font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; font-weight: 600; }
+  .shop-sec > summary::-webkit-details-marker { display: none; }
+  .shop-sec > summary::before { content: "›"; font-size: 18px; line-height: 1; transition: transform .15s; }
+  .shop-sec[open] > summary::before { transform: rotate(90deg); }
+  .shop-count { margin-left: auto; text-transform: none; letter-spacing: 0; background: var(--chip); border-radius: 999px; padding: 1px 8px; font-size: 12px; }
   .plus { color: var(--muted); font-weight: 400; }
   .dishblock { padding-bottom: 12px; margin-bottom: 12px; border-bottom: 1px solid var(--line); }
   .dishhead { display: flex; align-items: center; gap: 8px; }
@@ -262,7 +268,7 @@ const CONFIG = {
 
 // Test-Funktion „Alle Gerichte löschen“ in den Einstellungen – später auf false setzen
 const SHOW_DELETE_ALL = true;
-const APP_VERSION = '2026-11-16.3';
+const APP_VERSION = '2026-11-17.1';
 const SLOTS = [['mittag', 'Mittag'], ['abend', 'Abend']];
 const UNITS = ['', 'g', 'kg', 'ml', 'l', 'Stk', 'EL', 'TL', 'Prise', 'Pck', 'Dose', 'Bund', 'Zehe', 'Scheibe'];
 const CAT_GROUPS = [
@@ -630,21 +636,21 @@ function viewShopping() {
   if (!items.length && !spices.length && !optional.length) {
     html += `<div class="empty-state">Für diese Woche ist noch nichts geplant.</div>`;
   }
-  if (items.length) {
-    html += `<p class="hint">Tippe an, was schon zu Hause ist – das wird durchgestrichen und nicht übertragen.</p><div class="list">` +
-      items.map(it => `<button class="row${have.has(it.key) ? ' done' : ''}" data-act="toggle" data-key="${esc(it.key)}"><span class="check"></span>
-        <div class="main"><div>${esc(itemText(it))}</div><div class="sub">${it.isExtra ? 'zusätzlich' : esc([...it.dishes].join(', '))}</div></div></button>`).join('') + `</div>`;
-  }
-  if (optional.length) {
-    html += `<div class="group-title">Optional</div><p class="hint" style="margin-top:0">Tippe an, was mit auf die Liste soll.</p><div class="list">` +
-      optional.map(it => `<button class="row spice${spiceSel.has('opt|' + it.key) ? ' on' : ''}" data-act="togglespice" data-key="${esc('opt|' + it.key)}"><span class="check"></span>
-        <div class="main"><div>${esc(itemText(it))}</div><div class="sub">${esc([...it.dishes].join(', '))}</div></div></button>`).join('') + `</div>`;
-  }
-  if (spices.length) {
-    html += `<div class="group-title">Gewürze</div><p class="hint" style="margin-top:0">Tippe an, welche Gewürze mit auf die Liste sollen.</p><div class="list">` +
-      spices.map(it => `<button class="row spice${spiceSel.has(it.key) ? ' on' : ''}" data-act="togglespice" data-key="${esc(it.key)}"><span class="check"></span>
-        <div class="main"><div>${esc(itemText(it))}</div><div class="sub">${esc([...it.dishes].join(', '))}</div></div></button>`).join('') + `</div>`;
-  }
+  // auf-/zuklappbare Abschnitte; Zustand wird pro Gerät gemerkt
+  const fold = ls.get('ep.fold', {});
+  const section = (key, title, count, hint, rows) => `<details class="shop-sec" data-fold="${key}"${fold[key] === false ? '' : ' open'}>
+    <summary><span>${title}</span><span class="shop-count">${count}</span></summary>
+    <p class="hint" style="margin-top:0">${hint}</p><div class="list">${rows}</div></details>`;
+  const pickRow = (it, key) => `<button class="row spice${spiceSel.has(key) ? ' on' : ''}" data-act="togglespice" data-key="${esc(key)}"><span class="check"></span>
+        <div class="main"><div>${esc(itemText(it))}</div><div class="sub">${esc([...it.dishes].join(', '))}</div></div></button>`;
+  if (optional.length) html += section('optional', 'Optional', `${optional.filter(i => spiceSel.has('opt|' + i.key)).length}/${optional.length}`,
+    'Tippe an, was mit auf die Liste soll.', optional.map(it => pickRow(it, 'opt|' + it.key)).join(''));
+  if (spices.length) html += section('spices', 'Gewürze', `${spices.filter(i => spiceSel.has(i.key)).length}/${spices.length}`,
+    'Tippe an, welche Gewürze mit auf die Liste sollen.', spices.map(it => pickRow(it, it.key)).join(''));
+  if (items.length) html += section('items', 'Zutaten', `${items.filter(i => !have.has(i.key)).length}/${items.length}`,
+    'Tippe an, was schon zu Hause ist – das wird durchgestrichen und nicht übertragen.',
+    items.map(it => `<button class="row${have.has(it.key) ? ' done' : ''}" data-act="toggle" data-key="${esc(it.key)}"><span class="check"></span>
+        <div class="main"><div>${esc(itemText(it))}</div><div class="sub">${it.isExtra ? 'zusätzlich' : esc([...it.dishes].join(', '))}</div></div></button>`).join(''));
   html += `<div class="addrow"><input class="in" id="extra" placeholder="Weiteres hinzufügen (z. B. Milch)"><button class="btn" data-act="addextra">+</button></div>`;
   const n = items.filter(i => !have.has(i.key)).length + spices.filter(i => spiceSel.has(i.key)).length + optional.filter(i => spiceSel.has('opt|' + i.key)).length;
   html += `<div class="actions"><button class="btn primary full" data-act="toreminders" ${n ? '' : 'disabled'}>An Erinnerungen senden (${n})</button>
@@ -1872,6 +1878,11 @@ document.addEventListener('submit', async e => {
   }
   closeSheet(); toast('Gespeichert'); render();
 });
+
+document.addEventListener('toggle', e => {
+  const k = e.target.dataset?.fold; if (!k) return;
+  const f = ls.get('ep.fold', {}); f[k] = e.target.open; ls.set('ep.fold', f);
+}, true);
 
 document.addEventListener('visibilitychange', async () => {
   if (document.visibilityState === 'visible' && store.mode === 'cloud' && !dlg.open && !$('#scandlg').open) { await guard(async () => { await loadDishes(); await loadPlan(); await loadStock(); }); render(); }
