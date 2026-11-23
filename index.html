@@ -268,7 +268,7 @@ const CONFIG = {
 
 // Test-Funktion „Alle Gerichte löschen“ in den Einstellungen – später auf false setzen
 const SHOW_DELETE_ALL = true;
-const APP_VERSION = '2026-11-23.2';
+const APP_VERSION = '2026-11-23.3';
 const SLOTS = [['mittag', 'Mittag'], ['abend', 'Abend']];
 const UNITS = ['', 'g', 'kg', 'ml', 'l', 'Stk', 'EL', 'TL', 'Prise', 'Pck', 'Dose', 'Bund', 'Zehe', 'Scheibe'];
 const CAT_GROUPS = [
@@ -340,6 +340,14 @@ const SupaStore = {
   async session() { const { data } = await this.sb.auth.getSession(); return !!data.session; },
   async login(email, password) { const { error } = await this.sb.auth.signInWithPassword({ email, password }); if (error) throw error; },
   async logout() { await this.sb.auth.signOut(); },
+  // Live-Abgleich: meldet Änderungen anderer Geräte an Gerichten, Plan, Zutaten und Notvorrat
+  subscribe(onChange) {
+    const ch = this.sb.channel('essensplaner-live');
+    for (const table of ['dishes', 'plan', 'catalog', 'stock_items', 'stock_batches', 'app_settings'])
+      ch.on('postgres_changes', { event: '*', schema: 'public', table }, () => onChange(table));
+    ch.subscribe(st => { state.live = st === 'SUBSCRIBED'; });
+    return ch;
+  },
   async importRecipe(url) {
     const { data, error } = await this.sb.functions.invoke('recipe-import', { body: { url } });
     if (error) { let msg = error.message; try { msg = (await error.context.json()).error || msg; } catch {} throw new Error(msg); }
@@ -1897,6 +1905,29 @@ document.addEventListener('toggle', e => {
   (state.fold || (state.fold = {}))[k] = e.target.open;
 }, true);
 
+// ── Live-Abgleich zwischen Geräten ─────────────────────────
+let liveTimer = null, livePending = false;
+const liveBusy = () => {
+  const a = document.activeElement;
+  return a && a.closest && a.closest('#app') && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName);   // nicht beim Tippen neu zeichnen
+};
+async function liveRefresh() {
+  await guard(async () => { await loadDishes(); await loadPlan(); await loadStock(); });
+  if (liveBusy()) { livePending = true; return; }
+  livePending = false; render();
+  // offene Detailansicht eines Tages mit neuem Stand füllen
+  const sh = dlg.open && dlg.querySelector('.sheet[data-day][data-slot]:not([data-add])');
+  if (sh && sh.querySelector('[data-act=adddish]') && !dlg.querySelector('textarea:focus')) {
+    const { day, slot } = sh.dataset;
+    if (entryDishes(state.plan[day + '|' + slot]).length) dlg.innerHTML = slotDetailHtml(day, slot);
+  }
+}
+function startLive() {
+  if (store.mode !== 'cloud' || state.liveCh) return;
+  state.liveCh = store.subscribe(() => { clearTimeout(liveTimer); liveTimer = setTimeout(liveRefresh, 400); });
+}
+document.addEventListener('focusout', () => { if (livePending) setTimeout(() => { if (!liveBusy() && livePending) { livePending = false; render(); } }, 50); });
+
 document.addEventListener('visibilitychange', async () => {
   if (document.visibilityState === 'visible' && store.mode === 'cloud' && !dlg.open && !$('#scandlg').open) { await guard(async () => { await loadDishes(); await loadPlan(); await loadStock(); }); render(); }
 });
@@ -1925,6 +1956,7 @@ async function start() {
   await guard(async () => { await loadDishes(); await loadPlan(); });
   await guard(loadStock);
   render();
+  startLive();
   // Import per Link (z. B. aus dem iPhone-Teilen-Menü): …/?import=https://…
   const imp = new URLSearchParams(location.search).get('import');
   if (imp) {
