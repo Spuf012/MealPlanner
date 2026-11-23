@@ -268,7 +268,7 @@ const CONFIG = {
 
 // Test-Funktion „Alle Gerichte löschen“ in den Einstellungen – später auf false setzen
 const SHOW_DELETE_ALL = true;
-const APP_VERSION = '2026-11-23.1';
+const APP_VERSION = '2026-11-23.2';
 const SLOTS = [['mittag', 'Mittag'], ['abend', 'Abend']];
 const UNITS = ['', 'g', 'kg', 'ml', 'l', 'Stk', 'EL', 'TL', 'Prise', 'Pck', 'Dose', 'Bund', 'Zehe', 'Scheibe'];
 const CAT_GROUPS = [
@@ -389,6 +389,7 @@ const state = {
   dishes: [],
   plan: {},           // 'YYYY-MM-DD|slot' → {day, slot, dish_id, note}
   search: '',
+  sort: ls.get('ep.sort', 'az'),
   cat: '',
   have: [],         // „Zu Hause“: was gerade da ist (wird nicht gespeichert)
   homeQ: '',
@@ -484,13 +485,23 @@ function filteredDishes() {
   return state.dishes
     .filter(d => !state.cat || d.categories.includes(state.cat))
     .filter(d => !q || d.name.toLowerCase().includes(q) || [...d.ingredients, ...d.spices].some(i => (i.name || '').toLowerCase().includes(q)))
-    .sort((a, b) => a.name.localeCompare(b.name, 'de'));
+    .sort(state.sort === 'new'
+      ? (a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')) || a.name.localeCompare(b.name, 'de')
+      : (a, b) => a.name.localeCompare(b.name, 'de'));
+}
+// „hinzugefügt heute / gestern / vor 3 Tagen / 12.11.“
+function addedLabel(ts) {
+  if (!ts) return '';
+  const d = new Date(ts); if (isNaN(d)) return '';
+  const days = Math.round((parseISO(iso(new Date())) - parseISO(iso(d))) / 864e5);
+  return days <= 0 ? 'heute' : days === 1 ? 'gestern' : days < 7 ? `vor ${days} Tagen` : d.toLocaleDateString('de-DE', { day: 'numeric', month: 'numeric', year: days > 300 ? '2-digit' : undefined });
 }
 function viewDishes() {
   const cats = categories();
   const list = filteredDishes();
   let html = `<div class="wrap"><header class="top"><h1>Gerichte</h1><div style="display:flex;gap:8px"><button class="iconbtn" data-act="importlink" aria-label="Aus Link importieren">🔗 Import</button><button class="iconbtn primary" data-act="newdish">+ Neu</button></div></header>
     <input class="search" id="search" type="search" placeholder="Suchen (Name oder Zutat)" value="${esc(state.search)}">`;
+  html += `<div class="seg" style="margin-bottom:10px">${[['az', 'A–Z'], ['new', 'Zuletzt hinzugefügt']].map(([k, t]) => `<button class="${(state.sort || 'az') === k ? 'on' : ''}" data-act="sortdishes" data-sort="${k}">${t}</button>`).join('')}</div>`;
   if (cats.length) html += `<div class="chips"><button class="chip${!state.cat ? ' on' : ''}" data-act="cat" data-cat="">Alle</button>${groupedCats(cats).flatMap(([, cs]) => cs).map(c => `<button class="chip${state.cat === c ? ' on' : ''}" data-act="cat" data-cat="${esc(c)}">${esc(c)}</button>`).join('')}</div>`;
   if (!state.dishes.length) return html + `<div class="empty-state">Noch keine Gerichte.<br>Tippe auf „+ Neu“.</div></div>`;
   if (!list.length) return html + `<div class="empty-state">Nichts gefunden.</div></div>`;
@@ -504,7 +515,7 @@ function viewDishes() {
     return `<div class="why-chips">${chips.join('')}</div>`;
   };
   html += `<div class="list">` + list.map(d => `<button class="row" data-act="editdish" data-id="${d.id}"><div class="main"><div>${q ? hl(d.name) : esc(d.name)}</div>
-    ${q ? why(d) : `<div class="sub">${esc([d.categories.join(', '), d.ingredients.map(i => i.name).filter(Boolean).join(', ')].filter(Boolean).join(' · ')) || '&nbsp;'}</div>`}</div>${(d.recipe_self || d.recipe_url || d.recipe_book) ? '<span title="Rezept vorhanden">📖</span>' : ''}</button>`).join('') + `</div>`;
+    ${q ? why(d) : `<div class="sub">${esc([state.sort === 'new' && addedLabel(d.created_at) ? '＋ ' + addedLabel(d.created_at) : '', d.categories.join(', '), d.ingredients.map(i => i.name).filter(Boolean).join(', ')].filter(Boolean).join(' · ')) || '&nbsp;'}</div>`}</div>${(d.recipe_self || d.recipe_url || d.recipe_book) ? '<span title="Rezept vorhanden">📖</span>' : ''}</button>`).join('') + `</div>`;
   const filtered = list.length !== state.dishes.length;
   html += `<button class="btn full" style="margin-top:14px" data-act="pdfbook">📄 ${filtered ? `Auswahl als PDF (${list.length} Gerichte)` : 'Kochbuch als PDF'}</button>`;
   return html + `<p class="hint">${state.dishes.length} Gerichte${filtered ? ' · der PDF-Export nimmt die aktuelle Suche/Kategorie' : ''}</p></div>`;
@@ -1616,7 +1627,7 @@ async function doCsvImport(file) {
     const typ = get(r, 'Typ').toLowerCase();
     const role = /braucht|basis|base|grund/.test(typ) ? 'base' : /ergänz|beilage|soße|sosse|side/.test(typ) ? 'side' : 'main';
     const needs = role === 'base' ? [...new Set(get(r, 'Braucht').split(/\s*[,|]\s*/).filter(Boolean))] : [];
-    dishes.push(normDish({ id: uid(), name, categories: cats, category: cats[0] || '', role, needs, instructions: get(r, 'Zubereitung'),
+    dishes.push(normDish({ id: uid(), name, created_at: new Date(Date.now() + dishes.length).toISOString(), categories: cats, category: cats[0] || '', role, needs, instructions: get(r, 'Zubereitung'),
       ingredients: parseIngredients(get(r, 'Zutaten')), spices: parseIngredients(get(r, 'Gewürze')), recipe_self: self,
       recipe_book: self ? '' : get(r, 'Rezeptbuch'), recipe_page: self ? '' : get(r, 'Seite'), recipe_url: self ? '' : get(r, 'Rezept-Link') }));
   }
@@ -1758,6 +1769,7 @@ document.addEventListener('click', async ev => {
       const title = state.cat ? `Kochbuch – ${state.cat}` : state.search.trim() ? `Kochbuch – „${state.search.trim()}“` : 'Unser Kochbuch';
       return printDishes(list, { book: true, title });
     }
+    case 'sortdishes': state.sort = el.dataset.sort; ls.set('ep.sort', state.sort); return render();
     case 'backup': return guard(doBackup);
     case 'deleteall': {
       if (!SHOW_DELETE_ALL) return;
@@ -1851,6 +1863,7 @@ document.addEventListener('submit', async e => {
   const needs = role === 'base' ? [...f.querySelectorAll('#needschips .chip.on')].map(c => c.dataset.need) : [];
   const d = { id: f.dataset.id, name: f.dname.value.trim(), categories: cats, category: cats[0] || '', role, needs, ingredients, spices, recipe_self: self,
     instructions: f.instructions.value.trim(),
+    created_at: dishById(f.dataset.id)?.created_at || new Date().toISOString(),
     recipe_book: self ? '' : f.recipe_book.value.trim(), recipe_page: self ? '' : f.recipe_page.value.trim(), recipe_url: self ? '' : f.recipe_url.value.trim() };
   if (!d.name) return;
   const ok = await guard(() => store.saveDish(d)); if (!ok) return;
